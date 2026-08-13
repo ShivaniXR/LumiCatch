@@ -1,0 +1,167 @@
+- !<AssetImportMetadata/21ea630a-68ab-409c-94c9-92ef79d3e1ab>
+  ImportedAssetIds:
+    TypeScriptAsset: !<reference> 226fc8fc-cdbb-4222-a2ec-8305e596670c
+  ImporterName: TypeScriptAssetImporter
+  PrimaryAsset: !<reference> 226fc8fc-cdbb-4222-a2ec-8305e596670c
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    TypeScriptAsset: !<own> e4ed6d9e-0c33-4dbb-81f4-cc93bf761a0c
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<TypeScriptAssetData/e4ed6d9e-0c33-4dbb-81f4-cc93bf761a0c>
+  SvgIcon: ""
+  SetupScript:
+    code: ""
+  Description: ""
+  VersionMajor: 0
+  VersionMinor: 0
+  VersionPatch: 0
+  ComponentUid: 8993540b-d06f-4153-93ac-2625029d6e82
+  ExportUid: 00000000-0000-0000-0000-000000000000
+  PackagePolicy: CanBeUnpacked
+  ScriptInputsHidden:
+    alertHoldS: false
+    alertRangeCm: false
+    ambientSound: false
+    burstPrefab: false
+    camera: false
+    captureConeDot: false
+    captureRangeCm: false
+    captureSound: false
+    creatureCount: false
+    creatureParent: false
+    creaturePrefab: false
+    creatureScale: false
+    driftAmplitudeCm: false
+    driftEaseRate: false
+    fleeDistanceCm: false
+    fleeSpeedCm: false
+    forwardSign: false
+    guaranteeDelayS: false
+    guaranteeEasyTarget: false
+    heroDistanceCm: false
+    internetModule: false
+    leashMaxCm: false
+    mercyMisses: false
+    mercySeconds: false
+    nearbyCooldownS: false
+    nearbyRangeCm: false
+    pulseAmount: false
+    rareChance: false
+    rarePrefab: false
+    rareScaleMult: false
+    returnSpeedCm: false
+    scoreText: false
+    serverUrl: false
+    simulate: false
+    skittishChance: false
+    spawnHeightSpreadCm: false
+    spawnMaxCm: false
+    spawnMinCm: false
+    spawnYawSpread: false
+    spinRate: false
+    useMercy: false
+    usePinchToSwing: false
+  ScriptTypesHidden:
+    {}
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
+  Tags:
+    []
+  Attachments:
+    []
+  DefaultScriptInputs:
+    - internetModule: !<reference.InternetModule> 00000000-0000-0000-0000-000000000000
+      creaturePrefab: !<reference.ObjectPrefab> 00000000-0000-0000-0000-000000000000
+      rarePrefab: !<reference.ObjectPrefab> 00000000-0000-0000-0000-000000000000
+      burstPrefab: !<reference.ObjectPrefab> 00000000-0000-0000-0000-000000000000
+      creatureParent: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      camera: !<reference.Camera> 00000000-0000-0000-0000-000000000000
+      scoreText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      captureSound: !<reference.AudioComponent> 00000000-0000-0000-0000-000000000000
+      ambientSound: !<reference.AudioComponent> 00000000-0000-0000-0000-000000000000
+      serverUrl: "ws://192.168.1.50:8765"
+      simulate: true
+      usePinchToSwing: true
+      creatureCount: !<float> 5.000000
+      spawnMinCm: !<float> 80.000000
+      spawnMaxCm: !<float> 220.000000
+      spawnYawSpread: 1.900000
+      spawnHeightSpreadCm: !<float> 70.000000
+      captureRangeCm: !<float> 150.000000
+      captureConeDot: 0.450000
+      nearbyRangeCm: !<float> 90.000000
+      nearbyCooldownS: 2.500000
+      rareChance: 0.220000
+      skittishChance: 0.350000
+      creatureScale: !<float> 1.000000
+      rareScaleMult: 1.350000
+      driftAmplitudeCm: !<float> 22.000000
+      driftEaseRate: 1.200000
+      fleeSpeedCm: !<float> 130.000000
+      fleeDistanceCm: !<float> 70.000000
+      returnSpeedCm: !<float> 55.000000
+      alertRangeCm: !<float> 55.000000
+      alertHoldS: 0.220000
+      leashMaxCm: !<float> 260.000000
+      pulseAmount: 0.120000
+      spinRate: 0.350000
+      useMercy: true
+      mercyMisses: !<float> 2.000000
+      mercySeconds: !<float> 6.000000
+      guaranteeEasyTarget: true
+      guaranteeDelayS: !<float> 3.000000
+      heroDistanceCm: !<float> 110.000000
+      forwardSign: !<float> -1.000000
+  ScriptTypes:
+    -
+      {}
+  InputLines:
+    - // @input Asset.InternetModule internetModule
+    - // @input Asset.ObjectPrefab creaturePrefab
+    - // @input Asset.ObjectPrefab rarePrefab
+    - // @input Asset.ObjectPrefab burstPrefab
+    - // @input SceneObject creatureParent
+    - // @input Component.Camera camera
+    - // @input Component.Text scoreText
+    - // @input Component.AudioComponent captureSound
+    - // @input Component.AudioComponent ambientSound
+    - '// @input string serverUrl = "ws://192.168.1.50:8765"'
+    - // @input bool simulate = true
+    - // @input bool usePinchToSwing = true
+    - // @input float creatureCount = 5
+    - // @input float spawnMinCm = 80
+    - // @input float spawnMaxCm = 220
+    - // @input float spawnYawSpread = 1.9
+    - // @input float spawnHeightSpreadCm = 70
+    - // @input float captureRangeCm = 150
+    - // @input float captureConeDot = 0.45
+    - // @input float nearbyRangeCm = 90
+    - // @input float nearbyCooldownS = 2.5
+    - // @input float rareChance = 0.22
+    - // @input float skittishChance = 0.35
+    - // @input float creatureScale = 1
+    - // @input float rareScaleMult = 1.35
+    - // @input float driftAmplitudeCm = 22
+    - // @input float driftEaseRate = 1.2
+    - // @input float fleeSpeedCm = 130
+    - // @input float fleeDistanceCm = 70
+    - // @input float returnSpeedCm = 55
+    - // @input float alertRangeCm = 55
+    - // @input float alertHoldS = 0.22
+    - // @input float leashMaxCm = 260
+    - // @input float pulseAmount = 0.12
+    - // @input float spinRate = 0.35
+    - // @input bool useMercy = true
+    - // @input float mercyMisses = 2
+    - // @input float mercySeconds = 6
+    - // @input bool guaranteeEasyTarget = true
+    - // @input float guaranteeDelayS = 3
+    - // @input float heroDistanceCm = 110
+    - // @input float forwardSign = -1

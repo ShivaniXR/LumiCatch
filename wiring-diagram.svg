@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" font-family="Arial, Helvetica, sans-serif">
+  <rect width="960" height="640" fill="#0e1420"/>
+  <text x="480" y="36" fill="#ffffff" font-size="22" text-anchor="middle" font-weight="bold">LumiCatch Net - Wiring (Arduino UNO Q, 3.3 V logic)</text>
+
+  <!-- UNO Q board -->
+  <rect x="60" y="90" width="260" height="420" rx="10" fill="#1b4b8f" stroke="#7fb2ff" stroke-width="2"/>
+  <text x="190" y="120" fill="#ffffff" font-size="18" text-anchor="middle" font-weight="bold">ARDUINO UNO Q</text>
+  <text x="190" y="140" fill="#a9c6ff" font-size="12" text-anchor="middle">powered by USB-C power bank</text>
+
+  <!-- UNO Q pins -->
+  <g font-size="14" fill="#ffffff">
+    <circle cx="320" cy="180" r="6" fill="#ffd24d"/><text x="250" y="185">3V3</text>
+    <circle cx="320" cy="220" r="6" fill="#9aa3ad"/><text x="250" y="225">GND</text>
+    <circle cx="320" cy="260" r="6" fill="#4dd2ff"/><text x="228" y="265">D20 SDA</text>
+    <circle cx="320" cy="300" r="6" fill="#4dff88"/><text x="228" y="305">D21 SCL</text>
+    <circle cx="320" cy="380" r="6" fill="#ff7ab8"/><text x="205" y="385">D9 (PWM)</text>
+    <circle cx="320" cy="440" r="6" fill="#9aa3ad"/><text x="250" y="445">GND</text>
+  </g>
+
+  <!-- MPU-6050 -->
+  <rect x="560" y="130" width="200" height="200" rx="8" fill="#5a2d82" stroke="#c9a0ff" stroke-width="2"/>
+  <text x="660" y="158" fill="#ffffff" font-size="16" text-anchor="middle" font-weight="bold">MPU-6050 IMU</text>
+  <g font-size="14" fill="#ffffff">
+    <circle cx="560" cy="185" r="6" fill="#ffd24d"/><text x="575" y="190">VCC (3.3 V only)</text>
+    <circle cx="560" cy="225" r="6" fill="#9aa3ad"/><text x="575" y="230">GND</text>
+    <circle cx="560" cy="265" r="6" fill="#4dd2ff"/><text x="575" y="270">SDA</text>
+    <circle cx="560" cy="305" r="6" fill="#4dff88"/><text x="575" y="310">SCL</text>
+  </g>
+
+  <!-- IMU wires -->
+  <path d="M326 180 H560" stroke="#ffd24d" stroke-width="3" fill="none"/>
+  <path d="M326 220 H470 V225 H560" stroke="#9aa3ad" stroke-width="3" fill="none"/>
+  <path d="M326 260 H470 V265 H560" stroke="#4dd2ff" stroke-width="3" fill="none"/>
+  <path d="M326 300 H470 V305 H560" stroke="#4dff88" stroke-width="3" fill="none"/>
+
+  <!-- Transistor circuit -->
+  <text x="640" y="392" fill="#ffffff" font-size="16" font-weight="bold">Haptic driver (on mini breadboard)</text>
+
+  <!-- 1k resistor -->
+  <rect x="420" y="368" width="80" height="22" rx="4" fill="#c9812f" stroke="#ffd8a0"/>
+  <text x="460" y="384" fill="#241503" font-size="13" text-anchor="middle" font-weight="bold">1 kΩ</text>
+  <path d="M326 380 H420" stroke="#ff7ab8" stroke-width="3"/>
+  <path d="M500 380 H560" stroke="#ff7ab8" stroke-width="3"/>
+
+  <!-- Transistor -->
+  <circle cx="600" cy="440" r="38" fill="#12324f" stroke="#8fd0ff" stroke-width="2"/>
+  <text x="600" y="428" fill="#ffffff" font-size="13" text-anchor="middle" font-weight="bold">2N2222</text>
+  <text x="600" y="444" fill="#a9c6ff" font-size="11" text-anchor="middle">NPN</text>
+  <text x="548" y="418" fill="#ffffff" font-size="12">B</text>
+  <text x="612" y="392" fill="#ffffff" font-size="12">C</text>
+  <text x="612" y="498" fill="#ffffff" font-size="12">E</text>
+  <path d="M560 380 V430 H568" stroke="#ff7ab8" stroke-width="3" fill="none"/>
+
+  <!-- Emitter to GND -->
+  <path d="M600 478 V520 H326 V440" stroke="#9aa3ad" stroke-width="3" fill="none"/>
+  <text x="470" y="540" fill="#9aa3ad" font-size="12">emitter to GND</text>
+
+  <!-- Motor -->
+  <circle cx="820" cy="330" r="46" fill="#173a2b" stroke="#7dffb0" stroke-width="2"/>
+  <text x="820" y="326" fill="#ffffff" font-size="14" text-anchor="middle" font-weight="bold">ERM coin</text>
+  <text x="820" y="344" fill="#a8ffd0" font-size="12" text-anchor="middle">motor (3 V)</text>
+  <text x="778" y="290" fill="#ffffff" font-size="12">+</text>
+  <text x="778" y="392" fill="#ffffff" font-size="12">−</text>
+
+  <!-- Motor + to 3V3 -->
+  <path d="M820 284 V200 H700 V180 H326" stroke="#ffd24d" stroke-width="3" fill="none"/>
+  <text x="770" y="230" fill="#ffd24d" font-size="12">motor + to 3V3</text>
+
+  <!-- Motor - to collector -->
+  <path d="M820 376 V440 H638" stroke="#7dffb0" stroke-width="3" fill="none"/>
+  <text x="700" y="470" fill="#7dffb0" font-size="12">motor − to collector</text>
+
+  <!-- Flyback diode -->
+  <g>
+    <rect x="866" y="300" width="24" height="66" rx="4" fill="#3a3f47" stroke="#d7dde6"/>
+    <path d="M878 312 L870 330 H886 Z" fill="#ffffff"/>
+    <rect x="870" y="332" width="16" height="4" fill="#ffffff"/>
+    <text x="900" y="322" fill="#ffffff" font-size="12">1N4007</text>
+    <text x="900" y="338" fill="#c7ced8" font-size="11">band (cathode)</text>
+    <text x="900" y="352" fill="#c7ced8" font-size="11">towards 3V3 side</text>
+    <path d="M878 300 V284 H866 M878 366 V386 H860" stroke="#d7dde6" stroke-width="2" fill="none"/>
+    <path d="M866 284 H820 M860 386 H820 V376" stroke="#d7dde6" stroke-width="2" fill="none"/>
+  </g>
+
+  <!-- Notes -->
+  <g font-size="13" fill="#c7ced8">
+    <text x="60" y="572">Notes: UNO Q pins are 3.3 V logic. Power the MPU-6050 from 3V3, never from 5 V (its pull-ups would drag SDA/SCL to 5 V).</text>
+    <text x="60" y="592">The diode sits directly across the motor terminals and absorbs the voltage spike when the motor switches off.</text>
+    <text x="60" y="612">D9 never drives the motor directly - the transistor carries the motor current, D9 only supplies the small base current.</text>
+  </g>
+</svg>

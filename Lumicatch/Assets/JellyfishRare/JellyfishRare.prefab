@@ -1,0 +1,42 @@
+- !<ObjectPrefab/25fcffe8-b484-4e47-85e8-9569c0bb1fba>
+  PackagePath: ""
+  objects:
+    - !<own> 24f1471d-b95e-4de3-881d-3c5ba6def018
+  LazyLoading: false
+  RetainAssets: true
+- !<SceneObject/24f1471d-b95e-4de3-881d-3c5ba6def018>
+  PrefabRemaps:
+    - 24f1471d-b95e-4de3-881d-3c5ba6def018: 24f1471d-b95e-4de3-77e2-c3a459210fe7
+    - 43abd45a-191f-4a69-81f7-b446c952af82: 43abd45a-191f-4a69-7e08-4bb936ad507d
+  Name: JellyfishRare
+  Enabled: true
+  Layers: 1
+  LocalTransform: !<TransformEntity>
+    Position: {x: 0.000000, y: 0.000000, z: 0.000000}
+    Rotation: {x: 0.000000, y: 0.000000, z: 0.000000}
+    Scale: {x: 10.000000, y: 10.000000, z: 10.000000}
+    HasSegmentScaleCompensation: false
+  Children:
+    []
+  Components:
+    - !<own> 43abd45a-191f-4a69-81f7-b446c952af82
+- !<RenderMeshVisual/43abd45a-191f-4a69-81f7-b446c952af82>
+  PrefabRemaps:
+    []
+  Name: Render Mesh Visual
+  Enabled: true
+  RenderOrder: 0
+  StretchMode: Stretch
+  VerticalAlignment: Center
+  HorizontalAlignment: Center
+  MeshShadowMode: None
+  ShadowColor: {x: 1.000000, y: 1.000000, z: 1.000000, w: 1.000000}
+  ShadowDensity: 1.000000
+  Materials:
+    - !<reference> e8317830-655d-47fd-b581-62f853f27df1
+  Mesh: !<reference> 5474aa40-1cb4-4a9d-89df-45eebc0f1d40
+  Skin: !<reference> 00000000-0000-0000-0000-000000000000
+  BlendShapesEnabled: true
+  BlendNormals: false
+  BlendShapes:
+    {}

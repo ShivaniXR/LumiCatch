@@ -1,0 +1,56 @@
+- !<AssetImportMetadata/07410c29-005f-4c87-8726-2e9412ba3c26>
+  ImportedAssetIds:
+    ObjectPrefab: !<reference> 25fcffe8-b484-4e47-85e8-9569c0bb1fba
+  ImporterName: ObjectPrefabImporter
+  PrimaryAsset: !<reference> 25fcffe8-b484-4e47-85e8-9569c0bb1fba
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    ObjectPrefab: !<own> 27f7aaf5-c022-4a17-bc1b-94af0794d14e
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<SceneObject/24f1471d-b95e-4de3-77e2-c3a459210fe7>
+  PrefabRemaps:
+    []
+  Name: JellyfishRare
+  Enabled: true
+  Layers: 1
+  LocalTransform: !<TransformEntity>
+    Position: {x: 0.000000, y: 0.000000, z: 0.000000}
+    Rotation: {x: 0.000000, y: 0.000000, z: 0.000000}
+    Scale: {x: 10.000000, y: 10.000000, z: 10.000000}
+    HasSegmentScaleCompensation: false
+  Children:
+    []
+  Components:
+    - !<own> 43abd45a-191f-4a69-7e08-4bb936ad507d
+- !<ObjectPrefabAssetData/27f7aaf5-c022-4a17-bc1b-94af0794d14e>
+  Prototype: !<ObjectOwner/49e050f2-454b-46bb-bc9b-00222aea7081>
+    PackagePath: ""
+    objects:
+      - !<own> 24f1471d-b95e-4de3-77e2-c3a459210fe7
+- !<RenderMeshVisual/43abd45a-191f-4a69-7e08-4bb936ad507d>
+  PrefabRemaps:
+    []
+  Name: Render Mesh Visual
+  Enabled: true
+  RenderOrder: 0
+  StretchMode: Stretch
+  VerticalAlignment: Center
+  HorizontalAlignment: Center
+  MeshShadowMode: None
+  ShadowColor: {x: 1.000000, y: 1.000000, z: 1.000000, w: 1.000000}
+  ShadowDensity: 1.000000
+  Materials:
+    - !<reference> e8317830-655d-47fd-b581-62f853f27df1
+  Mesh: !<reference> 5474aa40-1cb4-4a9d-89df-45eebc0f1d40
+  Skin: !<reference> 00000000-0000-0000-0000-000000000000
+  BlendShapesEnabled: true
+  BlendNormals: false
+  BlendShapes:
+    {}
