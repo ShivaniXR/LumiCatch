@@ -40,14 +40,30 @@ const KIND_DRIFTER = 0;
 const KIND_SKITTISH = 1;
 const KIND_LUMEN = 2;
 
+// Shoal mood, driven entirely by what the player just did. Unlike emergent
+// flocking this is deterministic: the same run of catches produces the same
+// behaviour every take, which is what makes it filmable.
+const MOOD_CALM = 0;
+const MOOD_SPOOKED = 1;
+const MOOD_CURIOUS = 2;
+
 // Behaviour states
 const ST_DRIFT = 0;
 const ST_ALERT = 1;
 const ST_FLEE = 2;
 const ST_RETURN = 3;
 
+// Colour per kind, applied at runtime. Editor-side material colour does not
+// survive on these graph materials, so the script owns the tint.
+// Spectacles displays are additive, so bright and saturated reads best and
+// anything dark simply disappears.
+const COL_DRIFTER = new vec4(0.15, 0.95, 1.0, 1.0);   // cyan
+const COL_SKITTISH = new vec4(0.45, 0.5, 1.0, 1.0);   // violet
+const COL_LUMEN = new vec4(1.0, 0.8, 0.15, 1.0);      // gold
+
 interface Creature {
   obj: SceneObject;
+  school: number;
   kind: number;
   state: number;
   stateT: number;
@@ -76,7 +92,9 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input usePinchToSwing: boolean = true;
 
   // ---- Spawning ----
-  @input creatureCount: number = 5;
+  @input creatureCount: number = 14;
+  @input spawnAllAround: boolean = true;   // 360 degrees around you, not just ahead
+  @input separationCm: number = 35;        // keep creatures from overlapping, 0 disables
   @input spawnMinCm: number = 80;
   @input spawnMaxCm: number = 220;
   @input spawnYawSpread: number = 1.9;       // radians of total spread, 1.9 is about +/- 54 deg
@@ -108,6 +126,23 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input pulseAmount: number = 0.12;
   @input spinRate: number = 0.35;            // radians per second
 
+  // ---- Schools and mood ----
+  @input schoolCount: number = 2;
+  @input schoolSpreadCm: number = 70;      // how loose a school sits around its centre
+  @input schoolMidCm: number = 170;        // school distance when calm
+  @input schoolFarCm: number = 250;        // when spooked, they back off to here
+  @input schoolNearCm: number = 100;       // when curious, they close in to here
+  @input schoolDriftRate: number = 0.12;   // radians per second, schools counter rotate
+  @input curiousDistanceCm: number = 85;   // how close an inquisitive one comes
+  @input cohesionCalm: number = 0.15;
+  @input cohesionSpooked: number = 0.75;   // tight shoal
+  @input cohesionCurious: number = 0.0;    // fully dispersed
+  @input spookCatches: number = 3;         // catches within spookWindowS to spook them
+  @input spookWindowS: number = 8.0;
+  @input spookSeconds: number = 5.0;
+  @input curiousMisses: number = 2;
+  @input curiousSeconds: number = 8.0;
+
   // ---- Demo safeguards ----
   @input useMercy: boolean = true;
   @input mercyMisses: number = 2;
@@ -131,6 +166,22 @@ export class LumiCatchManager extends BaseScriptComponent {
   private consecutiveMisses: number = 0;
   private mercyUntil: number = -10;
   private easyMissingT: number = 0;
+  private nearbyActive: boolean = false;
+  private kindMaterials: Material[] = [null, null, null];
+  private tintWarned: boolean = false;
+  private mood: number = MOOD_CALM;
+  private moodUntil: number = 0;
+  private catchTimes: number[] = [];
+  private schoolAngle: number[] = [];
+  private schoolCentre: vec3[] = [];
+
+  // Live difficulty, pushed from the UNO Q's adaptive model. All multipliers,
+  // so the Lens keeps its own tuned baselines and the board only scales them.
+  private diffLevel: number = 0;
+  private diffSpeedMult: number = 1.0;
+  private diffEvasionMult: number = 1.0;
+  private diffAlertMult: number = 1.0;
+  private diffCloaking: boolean = false;
 
   onAwake() {
     this.createEvent('OnStartEvent').bind(() => this.onStart());
@@ -147,12 +198,42 @@ export class LumiCatchManager extends BaseScriptComponent {
       this.bindPinch();
     }
 
+    this.initSchools(this.camera.getTransform().getWorldPosition());
+
     for (let i = 0; i < this.creatureCount; i++) {
       // Force the first one to be a Drifter so there is always an easy
       // target available for the guarantee to summon.
       this.spawnCreature(i === 0 ? KIND_DRIFTER : -1);
     }
     this.updateScore(0);
+
+    // Put the first Drifter straight into the capture zone, so there is
+    // something catchable the instant the Lens starts. Without this you spend
+    // the first few seconds of every take waiting for one to swim into range.
+    if (this.guaranteeEasyTarget && this.creatures.length > 0) {
+      const heroT = this.camera.getTransform();
+      const hero = heroT
+        .getWorldPosition()
+        .add(this.camForward().uniformScale(this.heroDistanceCm))
+        .add(heroT.right.uniformScale((Math.random() - 0.5) * 30))
+        .add(new vec3(0, 5, 0));
+      this.creatures[0].home = hero;
+      this.creatures[0].pos = hero;
+    }
+
+    // One-line sanity check on forwardSign, which is the most common setup
+    // mistake and is invisible until you put the glasses on.
+    const camPos0 = this.camera.getTransform().getWorldPosition();
+    const fwd0 = this.camForward();
+    let inFront = 0;
+    for (let i = 0; i < this.creatures.length; i++) {
+      const d = this.creatures[i].pos.sub(camPos0);
+      if (d.length > 0.0001 && d.normalize().dot(fwd0) > 0) inFront++;
+    }
+    print(
+      'LumiCatch: ' + inFront + ' of ' + this.creatures.length +
+      ' creatures spawned in front. If this is 0, flip forwardSign.'
+    );
 
     if (this.ambientSound) {
       this.ambientSound.play(-1); // -1 = loop forever
@@ -185,13 +266,28 @@ export class LumiCatchManager extends BaseScriptComponent {
 
   // ---------------- WebSocket ----------------
 
+  /**
+   * The Internet Module, from the Inspector slot if you filled it, otherwise
+   * pulled straight out of Lens Studio. Built in modules are reachable through
+   * the 'LensStudio:' prefix, so nothing has to be added to the project at all.
+   */
+  private resolveInternetModule(): InternetModule {
+    if (this.internetModule) return this.internetModule;
+    try {
+      return require('LensStudio:InternetModule') as InternetModule;
+    } catch (e) {
+      return null;
+    }
+  }
+
   private connect() {
-    if (!this.internetModule) {
-      print('LumiCatch: no Internet Module assigned. Assign one, or tick simulate.');
+    const net = this.resolveInternetModule();
+    if (!net) {
+      print('LumiCatch: no Internet Module available. Assign one, or tick simulate.');
       return;
     }
     print('LumiCatch: connecting to ' + this.serverUrl);
-    this.socket = this.internetModule.createWebSocket(this.serverUrl);
+    this.socket = net.createWebSocket(this.serverUrl);
 
     this.socket.onopen = () => {
       this.connected = true;
@@ -225,6 +321,46 @@ export class LumiCatchManager extends BaseScriptComponent {
     if (data.type === 'swing') {
       print('LumiCatch: swing received, peak ' + data.peak);
       this.onSwing(data.peak || 0);
+      return;
+    }
+
+    // The board's predictive model says a swing is about to peak. Used as an
+    // early warning only: the authoritative catch still happens on the real
+    // 'swing' message, so a wrong prediction can never award a false catch.
+    if (data.type === 'predict') {
+      print(
+        'LumiCatch: swing predicted in ' + data.etaMs +
+        ' ms, confidence ' + data.confidence
+      );
+      return;
+    }
+
+    // Adaptive difficulty from the UNO Q.
+    if (data.type === 'difficulty') {
+      this.diffLevel = data.level || 0;
+      this.diffSpeedMult = data.speedMult || 1.0;
+      this.diffEvasionMult = data.evasionMult || 1.0;
+      this.diffAlertMult = data.alertMult || 1.0;
+      this.diffCloaking = data.cloaking === true;
+      if (typeof data.skittishBias === 'number') {
+        this.skittishChance = data.skittishBias;
+      }
+      print(
+        'LumiCatch: difficulty ' + this.diffLevel +
+        ', speed x' + this.diffSpeedMult +
+        (this.diffCloaking ? ', cloaking on' : '')
+      );
+    }
+  }
+
+  /** Tell the board whether that swing landed, so its model can adapt. */
+  private sendResult(hit: boolean) {
+    if (this.simulate) {
+      print('LumiCatch: [sim] result ' + (hit ? 'hit' : 'miss'));
+      return;
+    }
+    if (this.connected && this.socket) {
+      this.socket.send(JSON.stringify({ type: 'result', hit: hit }));
     }
   }
 
@@ -248,7 +384,12 @@ export class LumiCatchManager extends BaseScriptComponent {
     return this.creatureParent ? this.creatureParent : this.getSceneObject();
   }
 
-  /** A random point inside the forward cone, at a comfortable height. */
+  /**
+   * A random point around the player, at a comfortable height.
+   * With spawnAllAround on, yaw covers the full 360 degrees so creatures fill
+   * the room and you have to turn to find them. With it off, they stay inside
+   * the forward cone defined by spawnYawSpread.
+   */
   private pointInCone(
     camPos: vec3,
     fwd: vec3,
@@ -256,7 +397,9 @@ export class LumiCatchManager extends BaseScriptComponent {
     minCm: number,
     maxCm: number
   ): vec3 {
-    const yaw = (Math.random() - 0.5) * this.spawnYawSpread;
+    const yaw = this.spawnAllAround
+      ? Math.random() * Math.PI * 2
+      : (Math.random() - 0.5) * this.spawnYawSpread;
     const dist = minCm + Math.random() * (maxCm - minCm);
     const dir = fwd
       .uniformScale(Math.cos(yaw))
@@ -264,6 +407,193 @@ export class LumiCatchManager extends BaseScriptComponent {
     return camPos
       .add(dir.uniformScale(dist))
       .add(new vec3(0, (Math.random() - 0.35) * this.spawnHeightSpreadCm, 0));
+  }
+
+  /**
+   * Cloaking, switched on by the board once difficulty passes its threshold.
+   * The rare Lumen creatures shimmer down towards black, which on an additive
+   * display means they genuinely fade out of sight rather than turning grey.
+   * Driven through the shared per-kind material, so the whole rare population
+   * pulses together and it reads as deliberate camouflage.
+   */
+  private updateCloaking() {
+    const mat = this.kindMaterials[KIND_LUMEN];
+    if (!mat) return;
+
+    let k = 1.0;
+    if (this.diffCloaking) {
+      // Dip to roughly 15 per cent brightness and back, about once a second.
+      const wave = 0.5 * (1 + Math.sin(this.elapsed * 2.1));
+      k = 0.15 + 0.85 * wave * wave;
+    }
+
+    mat.mainPass.baseColor = new vec4(
+      COL_LUMEN.r * k,
+      COL_LUMEN.g * k,
+      COL_LUMEN.b * k,
+      COL_LUMEN.a
+    );
+  }
+
+  // ---------------- Schools and mood ----------------
+
+  /**
+   * A point on a ring around 'centre'. Uses world axes rather than camera
+   * axes on purpose: schools are anchored in the room, so turning your head
+   * must not swing them around with you.
+   */
+  private pointAtAngle(
+    centre: vec3,
+    angle: number,
+    dist: number,
+    height: number
+  ): vec3 {
+    const dir = new vec3(Math.sin(angle), 0, Math.cos(angle));
+    return centre.add(dir.uniformScale(dist)).add(new vec3(0, height, 0));
+  }
+
+  private randomOffset(r: number): vec3 {
+    return new vec3(
+      (Math.random() - 0.5) * r * 2,
+      (Math.random() - 0.5) * r,
+      (Math.random() - 0.5) * r * 2
+    );
+  }
+
+  private initSchools(camPos: vec3) {
+    this.schoolAngle = [];
+    this.schoolCentre = [];
+    for (let s = 0; s < this.schoolCount; s++) {
+      const a = (s / this.schoolCount) * Math.PI * 2;
+      this.schoolAngle.push(a);
+      this.schoolCentre.push(
+        this.pointAtAngle(camPos, a, this.schoolMidCm, 0)
+      );
+    }
+  }
+
+  private cohesionForMood(): number {
+    if (this.mood === MOOD_SPOOKED) return this.cohesionSpooked;
+    if (this.mood === MOOD_CURIOUS) return this.cohesionCurious;
+    return this.cohesionCalm;
+  }
+
+  private schoolDistanceForMood(): number {
+    if (this.mood === MOOD_SPOOKED) return this.schoolFarCm;
+    if (this.mood === MOOD_CURIOUS) return this.schoolNearCm;
+    return this.schoolMidCm;
+  }
+
+  private updateSchools(dt: number, camPos: vec3) {
+    const dist = this.schoolDistanceForMood();
+    for (let s = 0; s < this.schoolCentre.length; s++) {
+      // Counter rotating, so the two schools sweep past each other rather than
+      // orbiting in lockstep.
+      this.schoolAngle[s] +=
+        dt * this.schoolDriftRate * (s % 2 === 0 ? 1 : -1);
+      const target = this.pointAtAngle(
+        camPos,
+        this.schoolAngle[s],
+        dist,
+        0
+      );
+      this.schoolCentre[s] = vec3.lerp(
+        this.schoolCentre[s],
+        target,
+        Math.min(1, dt * 0.6)
+      );
+    }
+  }
+
+  private setMood(m: number, camPos: vec3) {
+    if (this.mood === m) return;
+    this.mood = m;
+
+    if (m === MOOD_SPOOKED) {
+      this.moodUntil = this.elapsed + this.spookSeconds;
+      print('LumiCatch: spooked, the schools are grouping tight and backing off');
+    } else if (m === MOOD_CURIOUS) {
+      this.moodUntil = this.elapsed + this.curiousSeconds;
+      print('LumiCatch: curious, the schools are dispersing and coming closer');
+    } else {
+      print('LumiCatch: the schools have settled');
+    }
+
+    this.rehomeForMood(camPos);
+  }
+
+  /** Give every creature a new home suited to the current mood. */
+  private rehomeForMood(camPos: vec3) {
+    for (let i = 0; i < this.creatures.length; i++) {
+      const c = this.creatures[i];
+
+      if (this.mood === MOOD_CURIOUS) {
+        // Break formation. Each one picks its own spot close in, all around
+        // you, so you are surrounded by inquisitive individuals.
+        const a = Math.random() * Math.PI * 2;
+        const d = this.curiousDistanceCm * (0.8 + Math.random() * 0.5);
+        c.home = this.pointAtAngle(
+          camPos,
+          a,
+          d,
+          (Math.random() - 0.35) * this.spawnHeightSpreadCm
+        );
+      } else {
+        const spread =
+          this.mood === MOOD_SPOOKED
+            ? this.schoolSpreadCm * 0.5
+            : this.schoolSpreadCm;
+        c.home = this.schoolCentre[c.school].add(this.randomOffset(spread));
+      }
+
+      // Send them swimming to the new home rather than snapping, so the mood
+      // change is something you can watch happen.
+      if (c.state === ST_DRIFT) c.state = ST_RETURN;
+      c.stateT = 0;
+    }
+  }
+
+  /** Find the first RenderMeshVisual on an object or anywhere below it. */
+  private findVisual(obj: SceneObject): RenderMeshVisual {
+    const own = obj.getComponent('Component.RenderMeshVisual');
+    if (own) return own;
+    const n = obj.getChildrenCount();
+    for (let i = 0; i < n; i++) {
+      const found = this.findVisual(obj.getChild(i));
+      if (found) return found;
+    }
+    return null;
+  }
+
+  /**
+   * Colour a creature by kind. The material is cloned once per kind, because
+   * every instance shares the prefab's material asset and tinting that
+   * directly would recolour every creature at once.
+   */
+  private tint(obj: SceneObject, kind: number) {
+    const visual = this.findVisual(obj);
+    if (!visual) {
+      if (!this.tintWarned) {
+        this.tintWarned = true;
+        print('LumiCatch: no RenderMeshVisual found on the creature prefab, cannot tint');
+      }
+      return;
+    }
+
+    if (!this.kindMaterials[kind]) {
+      const base = visual.mainMaterial;
+      if (!base) return;
+      const cloned = base.clone();
+      cloned.mainPass.baseColor =
+        kind === KIND_LUMEN
+          ? COL_LUMEN
+          : kind === KIND_SKITTISH
+          ? COL_SKITTISH
+          : COL_DRIFTER;
+      this.kindMaterials[kind] = cloned;
+    }
+
+    visual.mainMaterial = this.kindMaterials[kind];
   }
 
   /** Move from 'from' towards 'to' by at most maxStep centimetres. */
@@ -303,16 +633,27 @@ export class LumiCatchManager extends BaseScriptComponent {
         : this.creaturePrefab;
 
     const obj = prefab.instantiate(this.creatureRoot());
+    this.tint(obj, kind);
 
     const camT = this.camera.getTransform();
     const camPos = camT.getWorldPosition();
-    const home = this.pointInCone(
-      camPos,
-      this.camForward(),
-      camT.right,
-      this.spawnMinCm,
-      this.spawnMaxCm
-    );
+
+    // Alternate schools so the two stay balanced as creatures are caught and
+    // respawned.
+    const school =
+      this.schoolCount > 0 ? this.creatures.length % this.schoolCount : 0;
+
+    // Born into its school if schools exist, otherwise the plain ring.
+    const home =
+      this.schoolCentre.length > school
+        ? this.schoolCentre[school].add(this.randomOffset(this.schoolSpreadCm))
+        : this.pointInCone(
+            camPos,
+            this.camForward(),
+            camT.right,
+            this.spawnMinCm,
+            this.spawnMaxCm
+          );
 
     const scale =
       this.creatureScale * (kind === KIND_LUMEN ? this.rareScaleMult : 1.0);
@@ -321,6 +662,7 @@ export class LumiCatchManager extends BaseScriptComponent {
 
     this.creatures.push({
       obj: obj,
+      school: school,
       kind: kind,
       state: ST_DRIFT,
       stateT: 0,
@@ -344,6 +686,14 @@ export class LumiCatchManager extends BaseScriptComponent {
     const rightV = camT.right;
     const worldUp = new vec3(0, 1, 0);
 
+    this.updateCloaking();
+
+    // Moods are timed, and lapse back to calm on their own.
+    if (this.mood !== MOOD_CALM && this.elapsed > this.moodUntil) {
+      this.setMood(MOOD_CALM, camPos);
+    }
+    this.updateSchools(dt, camPos);
+
     let nearestDist = Number.MAX_VALUE;
     let nearestKind = KIND_DRIFTER;
     let easyReady = false;
@@ -356,8 +706,14 @@ export class LumiCatchManager extends BaseScriptComponent {
       const dist = toC.length;
       const dir = dist > 0.0001 ? toC.normalize() : fwd;
 
-      // Leash. Nothing is allowed to wander out of shot or behind the player.
-      if (dist > this.leashMaxCm || dir.dot(fwd) < -0.15) {
+      // Leash. The distance limit always applies so nothing escapes to the far
+      // side of the room. The 'behind you' rule only applies when creatures are
+      // meant to stay ahead: with spawnAllAround on, being behind you is the
+      // whole point, so re-homing them would fight the design.
+      const strayed =
+        dist > this.leashMaxCm ||
+        (!this.spawnAllAround && dir.dot(fwd) < -0.15);
+      if (strayed) {
         c.home = this.pointInCone(
           camPos,
           fwd,
@@ -378,12 +734,24 @@ export class LumiCatchManager extends BaseScriptComponent {
             Math.sin(this.elapsed * 0.9 + c.seed * 2) * a * 0.5,
             Math.cos(this.elapsed * 0.3 + c.seed) * a
           );
+          // Cohesion pulls the creature towards its school centre. At 0 it
+          // ignores the school entirely and drifts alone, which is what the
+          // curious mood uses.
+          let target = c.home.add(wob);
+          const coh = this.cohesionForMood();
+          if (coh > 0 && this.schoolCentre.length > c.school) {
+            target = vec3.lerp(
+              target,
+              this.schoolCentre[c.school].add(wob),
+              coh
+            );
+          }
           c.pos = vec3.lerp(
             c.pos,
-            c.home.add(wob),
+            target,
             Math.min(1, dt * this.driftEaseRate)
           );
-          if (this.canFlee(c) && dist < this.alertRangeCm) {
+          if (this.canFlee(c) && dist < this.alertRangeCm * this.diffAlertMult) {
             c.state = ST_ALERT;
             c.stateT = 0;
           }
@@ -402,7 +770,11 @@ export class LumiCatchManager extends BaseScriptComponent {
         }
 
         case ST_FLEE: {
-          c.pos = this.stepTowards(c.pos, c.fleeTarget, this.fleeSpeedCm * dt);
+          c.pos = this.stepTowards(
+            c.pos,
+            c.fleeTarget,
+            this.fleeSpeedCm * this.diffSpeedMult * dt
+          );
           if (c.pos.distance(c.fleeTarget) < 8 || c.stateT > 1.2) {
             c.home = this.pointInCone(
               camPos,
@@ -418,7 +790,11 @@ export class LumiCatchManager extends BaseScriptComponent {
         }
 
         case ST_RETURN: {
-          c.pos = this.stepTowards(c.pos, c.home, this.returnSpeedCm * dt);
+          c.pos = this.stepTowards(
+            c.pos,
+            c.home,
+            this.returnSpeedCm * this.diffSpeedMult * dt
+          );
           if (c.pos.distance(c.home) < 15) {
             c.state = ST_DRIFT;
             c.stateT = 0;
@@ -427,8 +803,35 @@ export class LumiCatchManager extends BaseScriptComponent {
         }
       }
 
-      // Apply the transform. Yaw spin plus bell pulse, no billboarding:
-      // a wrong facing axis is invisible in the editor and obvious on video.
+    }
+
+    // Gentle separation, so two creatures never sit in the same spot. This is
+    // the one overlap artefact you would actually notice on camera. At 14
+    // creatures it is 91 pair checks a frame, which is nothing, and unlike a
+    // full flocking simulation it leaves each creature's path predictable.
+    if (this.separationCm > 0) {
+      for (let i = 0; i < this.creatures.length; i++) {
+        for (let j = i + 1; j < this.creatures.length; j++) {
+          const a = this.creatures[i];
+          const b = this.creatures[j];
+          const delta = b.pos.sub(a.pos);
+          const len = delta.length;
+          if (len > 0.0001 && len < this.separationCm) {
+            const push = delta.uniformScale(
+              ((this.separationCm - len) * 0.5) / len
+            );
+            a.pos = a.pos.sub(push);
+            b.pos = b.pos.add(push);
+          }
+        }
+      }
+    }
+
+    // Apply transforms once positions have settled. Yaw spin plus bell pulse,
+    // no billboarding: a wrong facing axis is invisible in the editor and
+    // obvious on video.
+    for (let i = 0; i < this.creatures.length; i++) {
+      const c = this.creatures[i];
       const t = c.obj.getTransform();
       t.setWorldPosition(c.pos);
 
@@ -441,21 +844,29 @@ export class LumiCatchManager extends BaseScriptComponent {
         quat.angleAxis(this.elapsed * this.spinRate + c.seed, worldUp)
       );
 
-      if (dist < nearestDist) {
-        nearestDist = dist;
+      const toC2 = c.pos.sub(camPos);
+      const dist2 = toC2.length;
+      const dir2 = dist2 > 0.0001 ? toC2.normalize() : fwd;
+
+      if (dist2 < nearestDist) {
+        nearestDist = dist2;
         nearestKind = c.kind;
       }
       if (
         c.kind === KIND_DRIFTER &&
-        dist < this.captureRangeCm &&
-        dir.dot(fwd) >= this.captureConeDot
+        dist2 < this.captureRangeCm &&
+        dir2.dot(fwd) >= this.captureConeDot
       ) {
         easyReady = true;
       }
     }
 
     // Guarantee: never let the player stand there with nothing catchable.
-    if (this.guaranteeEasyTarget) {
+    // Suspended while spooked, since backing off is the whole point of that
+    // mood and dragging one back would fight it. Spook only lasts a few
+    // seconds and only follows a run of successful catches, so the take is
+    // never left stranded.
+    if (this.guaranteeEasyTarget && this.mood !== MOOD_SPOOKED) {
       if (easyReady) {
         this.easyMissingT = 0;
       } else {
@@ -467,13 +878,19 @@ export class LumiCatchManager extends BaseScriptComponent {
       }
     }
 
-    // Proximity haptic. Rare creatures get their own pattern.
-    if (
-      nearestDist < this.nearbyRangeCm &&
-      this.elapsed - this.lastNearbyPing > this.nearbyCooldownS
-    ) {
-      this.lastNearbyPing = this.elapsed;
-      this.sendHaptic(nearestKind === KIND_LUMEN ? 2 : 1);
+    // Proximity haptic, edge triggered. It fires when something arrives, not
+    // continuously while it loiters, otherwise the net buzzes every couple of
+    // seconds all demo long and the capture buzz stops feeling special.
+    // The 1.25 multiplier is hysteresis, so a creature hovering on the
+    // boundary cannot chatter the motor on and off.
+    if (!this.nearbyActive && nearestDist < this.nearbyRangeCm) {
+      this.nearbyActive = true;
+      if (this.elapsed - this.lastNearbyPing > this.nearbyCooldownS) {
+        this.lastNearbyPing = this.elapsed;
+        this.sendHaptic(nearestKind === KIND_LUMEN ? 2 : 1);
+      }
+    } else if (this.nearbyActive && nearestDist > this.nearbyRangeCm * 1.25) {
+      this.nearbyActive = false;
     }
   }
 
@@ -499,7 +916,9 @@ export class LumiCatchManager extends BaseScriptComponent {
       .add(away.uniformScale(0.3))
       .normalize();
 
-    return c.pos.add(fleeDir.uniformScale(this.fleeDistanceCm * boost));
+    return c.pos.add(
+      fleeDir.uniformScale(this.fleeDistanceCm * boost * this.diffEvasionMult)
+    );
   }
 
   /** Send a Drifter swimming into the capture zone in front of the player. */
@@ -556,6 +975,8 @@ export class LumiCatchManager extends BaseScriptComponent {
       }
     }
 
+    this.sendResult(bestIdx >= 0);
+
     if (bestIdx >= 0) {
       this.consecutiveMisses = 0;
       this.capture(bestIdx);
@@ -568,6 +989,10 @@ export class LumiCatchManager extends BaseScriptComponent {
           this.consecutiveMisses +
           ')'
       );
+      // Checked before mercy, because mercy resets the counter.
+      if (this.consecutiveMisses >= this.curiousMisses) {
+        this.setMood(MOOD_CURIOUS, camPos);
+      }
       if (this.useMercy && this.consecutiveMisses >= this.mercyMisses) {
         this.mercyUntil = this.elapsed + this.mercySeconds;
         this.consecutiveMisses = 0;
@@ -593,6 +1018,19 @@ export class LumiCatchManager extends BaseScriptComponent {
     }
 
     if (this.captureSound) this.captureSound.play(1);
+
+    // Back to back catches spook the shoal.
+    this.catchTimes.push(this.elapsed);
+    while (
+      this.catchTimes.length > 0 &&
+      this.elapsed - this.catchTimes[0] > this.spookWindowS
+    ) {
+      this.catchTimes.shift();
+    }
+    if (this.catchTimes.length >= this.spookCatches) {
+      this.catchTimes = [];
+      this.setMood(MOOD_SPOOKED, this.camera.getTransform().getWorldPosition());
+    }
 
     const combo = this.elapsed - this.lastCapture < 4.0;
     this.lastCapture = this.elapsed;

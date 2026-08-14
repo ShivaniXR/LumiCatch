@@ -39,6 +39,15 @@ const unsigned long DEBOUNCE_MS    = 400;
 volatile float pendingPeak = 0.0f;      // latest swing peak, cleared on read
 volatile int   requestedPattern = 0;    // set by play_haptic RPC
 
+// ---------- IMU sample buffer, drained by the Linux side ----------
+// The Qualcomm side runs the trajectory prediction, so it needs the raw
+// magnitude stream rather than just finished swings. We buffer here at the
+// full 200 Hz and hand over a batch on each poll (~30 Hz, so about 6 samples).
+// Sized well above that so a late poll cannot lose data.
+const int SAMPLE_BUF = 48;
+volatile float sampleBuf[SAMPLE_BUF];
+volatile int   sampleCount = 0;
+
 // ---------- Swing state machine ----------
 enum SwingState { IDLE, PEAKING, COOLDOWN };
 SwingState swingState = IDLE;
@@ -70,6 +79,21 @@ float get_event() {
 void play_haptic(int pattern) {
   // provide_safe -> executes in loop() context, safe to touch state.
   requestedPattern = pattern;
+}
+
+String get_samples() {
+  // Hands the buffered magnitudes to the Linux side and empties the buffer.
+  // Comma separated, two decimals: "1.02,1.15,1.44".
+  // Kept short deliberately, this runs on the Bridge RPC thread.
+  String out = "";
+  int n = sampleCount;
+  if (n > SAMPLE_BUF) n = SAMPLE_BUF;
+  for (int i = 0; i < n; i++) {
+    if (i > 0) out += ",";
+    out += String(sampleBuf[i], 2);
+  }
+  sampleCount = 0;
+  return out;
 }
 
 // ================= MPU-6050 helpers =================
@@ -110,6 +134,7 @@ void setup() {
 
   Bridge.begin();
   Bridge.provide("get_event", get_event);
+  Bridge.provide("get_samples", get_samples);
   Bridge.provide_safe("play_haptic", play_haptic);
 
   // Boot confirmation buzz so you know the firmware is alive.
@@ -129,6 +154,16 @@ void loop() {
   float gx, gy, gz;
   if (mpuReadAccel(gx, gy, gz)) {
     float mag = sqrtf(gx * gx + gy * gy + gz * gz);
+
+    // Buffer for the Linux side's trajectory model. If the buffer fills
+    // because a poll was late, drop the oldest rather than the newest: the
+    // predictor cares about the most recent motion.
+    if (sampleCount < SAMPLE_BUF) {
+      sampleBuf[sampleCount++] = mag;
+    } else {
+      for (int i = 1; i < SAMPLE_BUF; i++) sampleBuf[i - 1] = sampleBuf[i];
+      sampleBuf[SAMPLE_BUF - 1] = mag;
+    }
 
     switch (swingState) {
       case IDLE:

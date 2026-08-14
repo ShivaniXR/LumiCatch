@@ -25,7 +25,7 @@
     Scale: {x: 1.000000, y: 1.000000, z: 1.000000}
     HasSegmentScaleCompensation: false
   Children:
-    []
+    - !<own> 8b8b69ba-6e16-4e1f-b1c6-3b4efce5b8b9
   Components:
     - !<own> 00000000-0000-0065-0000-000000000065
     - !<own> e5553c8a-0b7e-4ef4-92d9-3e1318fb82c1
@@ -1718,6 +1718,21 @@
     - !<own> fe66bb72-6c90-42c5-bc72-2915d91b4804
   Components:
     []
+- !<SceneObject/8b8b69ba-6e16-4e1f-b1c6-3b4efce5b8b9>
+  PrefabRemaps:
+    []
+  Name: ScoreText
+  Enabled: true
+  Layers: 1
+  LocalTransform: !<TransformEntity>
+    Position: {x: 0.000000, y: 0.000000, z: 0.000000}
+    Rotation: {x: 0.000000, y: 0.000000, z: 0.000000}
+    Scale: {x: 1.000000, y: 1.000000, z: 1.000000}
+    HasSegmentScaleCompensation: false
+  Children:
+    []
+  Components:
+    - !<own> e0a9f8a3-720f-4284-813c-cb4d69498f2b
 - !<SceneObject/8cdd4c87-6054-4626-9717-2c37ae231599>
   PrefabRemaps:
     []
@@ -2560,6 +2575,87 @@
     []
   Components:
     - !<own> 75d719fb-84ac-454c-9e85-1bfaf7456e62
+- !<Text/e0a9f8a3-720f-4284-813c-cb4d69498f2b>
+  PrefabRemaps:
+    []
+  Name: Text
+  Enabled: true
+  RenderOrder: 0
+  StretchMode: Stretch
+  VerticalAlignment: Center
+  HorizontalAlignment: Center
+  MeshShadowMode: None
+  ShadowColor: {x: 1.000000, y: 1.000000, z: 1.000000, w: 1.000000}
+  ShadowDensity: 1.000000
+  Text: "Caught: 0"
+  Editable: false
+  ShowEditingPreview: true
+  TouchHandler: !<reference> 00000000-0000-0000-0000-000000000000
+  SizeToFit: false
+  FontSize: 48
+  Font: !<reference> 00000000-0000-0000-0000-000000000000
+  LayoutRect:
+    left: -7.500000
+    bottom: -2.250000
+    right: 7.500000
+    top: 2.250000
+  OverflowVertical: Overflow
+  OverflowHorizontal: Overflow
+  Fill: !<TextFill>
+    Mode: Solid
+    Color: {x: 1.000000, y: 1.000000, z: 1.000000, w: 1.000000}
+    Texture: !<reference> 00000000-0000-0000-0000-000000000000
+    ColorTint: {x: 1.000000, y: 1.000000, z: 1.000000, w: 1.000000}
+    TileCount: 5.000000
+    TileZone: Rect
+    TextureStretch: FitWidth
+  BlendMode: PremultipliedAlpha
+  Outline: !<OutlineSettings>
+    Enabled: false
+    Fill: !<TextFill>
+      Mode: Solid
+      Color: {x: 0.000000, y: 0.000000, z: 0.000000, w: 1.000000}
+      Texture: !<reference> 00000000-0000-0000-0000-000000000000
+      ColorTint: {x: 1.000000, y: 1.000000, z: 1.000000, w: 1.000000}
+      TileCount: 5.000000
+      TileZone: Rect
+      TextureStretch: FitWidth
+    Size: 0.250000
+  Dropshadow: !<DropshadowSettings>
+    Enabled: false
+    Fill: !<TextFill>
+      Mode: Solid
+      Color: {x: 0.000000, y: 0.000000, z: 0.000000, w: 1.000000}
+      Texture: !<reference> 00000000-0000-0000-0000-000000000000
+      ColorTint: {x: 1.000000, y: 1.000000, z: 1.000000, w: 1.000000}
+      TileCount: 5.000000
+      TileZone: Rect
+      TextureStretch: FitWidth
+    OffsetX: 0.250000
+    OffsetY: 0.250000
+  Background: !<BackgroundSettings>
+    Enabled: false
+    Fill: !<TextFill>
+      Mode: Solid
+      Color: {x: 0.000000, y: 0.000000, z: 0.000000, w: 1.000000}
+      Texture: !<reference> 00000000-0000-0000-0000-000000000000
+      ColorTint: {x: 1.000000, y: 1.000000, z: 1.000000, w: 1.000000}
+      TileCount: 5.000000
+      TileZone: Rect
+      TextureStretch: FitWidth
+    Margins:
+      left: 0.000000
+      bottom: 0.000000
+      right: 0.000000
+      top: 0.000000
+    CornerRadius: 0.000000
+  AdvancedLayout: !<TextAdvancedLayout>
+    ExtentsTarget: !<reference> 00000000-0000-0000-0000-000000000000
+    LetterSpacing: 0.000000
+    LineSpacing: 1.000000
+    CapitalizationOverride: None
+  DepthTest: false
+  TwoSided: false
 - !<SceneObject/e0b103d0-c0f0-4704-a927-287d342f0319>
   PrefabRemaps:
     []
@@ -2775,13 +2871,12 @@
     internetModule: true
     burstPrefab: true
     creatureParent: true
-    scoreText: true
     captureSound: true
     ambientSound: true
-    serverUrl: true
     simulate: true
     usePinchToSwing: true
-    creatureCount: true
+    spawnAllAround: true
+    separationCm: true
     captureRangeCm: true
     nearbyRangeCm: true
     nearbyCooldownS: true
@@ -2795,6 +2890,21 @@
     alertHoldS: true
     pulseAmount: true
     spinRate: true
+    schoolCount: true
+    schoolSpreadCm: true
+    schoolMidCm: true
+    schoolFarCm: true
+    schoolNearCm: true
+    schoolDriftRate: true
+    curiousDistanceCm: true
+    cohesionCalm: true
+    cohesionSpooked: true
+    cohesionCurious: true
+    spookCatches: true
+    spookWindowS: true
+    spookSeconds: true
+    curiousMisses: true
+    curiousSeconds: true
     useMercy: true
     mercyMisses: true
     mercySeconds: true
@@ -2812,15 +2922,17 @@
       burstPrefab: !<reference.ObjectPrefab> 00000000-0000-0000-0000-000000000000
       creatureParent: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
       camera: !<reference.Camera> 00000000-0000-0065-0000-000000000065
-      scoreText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      scoreText: !<reference.Text> e0a9f8a3-720f-4284-813c-cb4d69498f2b
       captureSound: !<reference.AudioComponent> 00000000-0000-0000-0000-000000000000
       ambientSound: !<reference.AudioComponent> 00000000-0000-0000-0000-000000000000
-      serverUrl: "ws://192.168.1.50:8765"
+      serverUrl: "ws://172.20.10.2:8765"
       simulate: true
       usePinchToSwing: true
-      creatureCount: !<float> 5.000000
+      creatureCount: !<float> 14.000000
+      spawnAllAround: true
+      separationCm: !<float> 35.000000
       spawnMinCm: !<float> 90.000000
-      spawnMaxCm: !<float> 200.000000
+      spawnMaxCm: !<float> 240.000000
       spawnYawSpread: 0.700000
       spawnHeightSpreadCm: !<float> 45.000000
       captureRangeCm: !<float> 150.000000
@@ -2838,9 +2950,24 @@
       returnSpeedCm: !<float> 55.000000
       alertRangeCm: !<float> 55.000000
       alertHoldS: 0.220000
-      leashMaxCm: !<float> 230.000000
+      leashMaxCm: !<float> 300.000000
       pulseAmount: 0.120000
       spinRate: 0.350000
+      schoolCount: !<float> 2.000000
+      schoolSpreadCm: !<float> 70.000000
+      schoolMidCm: !<float> 170.000000
+      schoolFarCm: !<float> 250.000000
+      schoolNearCm: !<float> 100.000000
+      schoolDriftRate: 0.120000
+      curiousDistanceCm: !<float> 85.000000
+      cohesionCalm: 0.150000
+      cohesionSpooked: 0.750000
+      cohesionCurious: !<float> 0.000000
+      spookCatches: !<float> 3.000000
+      spookWindowS: !<float> 8.000000
+      spookSeconds: !<float> 5.000000
+      curiousMisses: !<float> 2.000000
+      curiousSeconds: !<float> 8.000000
       useMercy: true
       mercyMisses: !<float> 2.000000
       mercySeconds: !<float> 6.000000

@@ -34,10 +34,16 @@
     captureConeDot: false
     captureRangeCm: false
     captureSound: false
+    cohesionCalm: false
+    cohesionCurious: false
+    cohesionSpooked: false
     creatureCount: false
     creatureParent: false
     creaturePrefab: false
     creatureScale: false
+    curiousDistanceCm: false
+    curiousMisses: false
+    curiousSeconds: false
     driftAmplitudeCm: false
     driftEaseRate: false
     fleeDistanceCm: false
@@ -57,15 +63,26 @@
     rarePrefab: false
     rareScaleMult: false
     returnSpeedCm: false
+    schoolCount: false
+    schoolDriftRate: false
+    schoolFarCm: false
+    schoolMidCm: false
+    schoolNearCm: false
+    schoolSpreadCm: false
     scoreText: false
+    separationCm: false
     serverUrl: false
     simulate: false
     skittishChance: false
+    spawnAllAround: false
     spawnHeightSpreadCm: false
     spawnMaxCm: false
     spawnMinCm: false
     spawnYawSpread: false
     spinRate: false
+    spookCatches: false
+    spookSeconds: false
+    spookWindowS: false
     useMercy: false
     usePinchToSwing: false
   ScriptTypesHidden:
@@ -90,6 +107,8 @@
       simulate: true
       usePinchToSwing: true
       creatureCount: !<float> 5.000000
+      spawnAllAround: true
+      separationCm: !<float> 35.000000
       spawnMinCm: !<float> 80.000000
       spawnMaxCm: !<float> 220.000000
       spawnYawSpread: 1.900000
@@ -112,6 +131,21 @@
       leashMaxCm: !<float> 260.000000
       pulseAmount: 0.120000
       spinRate: 0.350000
+      schoolCount: !<float> 2.000000
+      schoolSpreadCm: !<float> 70.000000
+      schoolMidCm: !<float> 170.000000
+      schoolFarCm: !<float> 250.000000
+      schoolNearCm: !<float> 100.000000
+      schoolDriftRate: 0.120000
+      curiousDistanceCm: !<float> 85.000000
+      cohesionCalm: 0.150000
+      cohesionSpooked: 0.750000
+      cohesionCurious: !<float> 0.000000
+      spookCatches: !<float> 3.000000
+      spookWindowS: !<float> 8.000000
+      spookSeconds: !<float> 5.000000
+      curiousMisses: !<float> 2.000000
+      curiousSeconds: !<float> 8.000000
       useMercy: true
       mercyMisses: !<float> 2.000000
       mercySeconds: !<float> 6.000000
@@ -135,7 +169,9 @@
     - '// @input string serverUrl = "ws://192.168.1.50:8765"'
     - // @input bool simulate = true
     - // @input bool usePinchToSwing = true
-    - // @input float creatureCount = 5
+    - // @input float creatureCount = 14
+    - // @input bool spawnAllAround = true
+    - // @input float separationCm = 35
     - // @input float spawnMinCm = 80
     - // @input float spawnMaxCm = 220
     - // @input float spawnYawSpread = 1.9
@@ -158,6 +194,21 @@
     - // @input float leashMaxCm = 260
     - // @input float pulseAmount = 0.12
     - // @input float spinRate = 0.35
+    - // @input float schoolCount = 2
+    - // @input float schoolSpreadCm = 70
+    - // @input float schoolMidCm = 170
+    - // @input float schoolFarCm = 250
+    - // @input float schoolNearCm = 100
+    - // @input float schoolDriftRate = 0.12
+    - // @input float curiousDistanceCm = 85
+    - // @input float cohesionCalm = 0.15
+    - // @input float cohesionSpooked = 0.75
+    - // @input float cohesionCurious
+    - // @input float spookCatches = 3
+    - // @input float spookWindowS = 8
+    - // @input float spookSeconds = 5
+    - // @input float curiousMisses = 2
+    - // @input float curiousSeconds = 8
     - // @input bool useMercy = true
     - // @input float mercyMisses = 2
     - // @input float mercySeconds = 6

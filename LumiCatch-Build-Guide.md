@@ -35,11 +35,27 @@ Wire only the MPU-6050 first. Follow `wiring-diagram.svg`:
 |---|---|
 | VCC | 3V3 (never 5 V) |
 | GND | GND |
-| SDA | D20 (SDA) |
-| SCL | D21 (SCL) |
+| SDA | the header pin marked **SDA** (same line as A4) |
+| SCL | the header pin marked **SCL** (same line as A5) |
+
+Go by the silkscreen labels, not by a pin number. `Wire.begin()` takes no
+arguments and the core already knows the board's default I2C pins, so there is
+nothing to look up and nothing to mistype. Arduino's UNO Q page keeps the
+pinout in a separate PDF rather than inline, so the silkscreen is the
+authority.
 
 1. Open Arduino App Lab, create a new App called `lumicatch`.
-2. Paste this smoke-test into `sketch/sketch.ino` and run it:
+2. Paste `phase1-imu-test.ino` from the repo root into `sketch/sketch.ino` and run it. That file is the smoke test: it checks the bus answers at 0x68, reads `WHO_AM_I` to prove it is the right chip, then prints magnitude in g and tracks the peak.
+
+Reading the peak matters more than it looks. Magnitude in g is the exact signal
+the swing detector thresholds on **and** the trajectory model differentiates, so
+swinging the bare breadboard now tells you what `SWING_THRESHOLD_G` should be
+before anything is assembled. Note the peak your natural swing produces, and the
+highest value you see while just walking around holding it. The threshold wants
+to sit between those two.
+
+The older, shorter smoke test below still works if you want the absolute
+minimum:
 
 ```cpp
 #include <Wire.h>
@@ -119,6 +135,66 @@ When it opens, the net should buzz (pattern 3). Swing the net and the browser sh
 
 Once stable, use the arrow next to Run and switch on 'Run at startup' so the net works untethered from a power bank while you film.
 
+### Testing the network path before the hardware exists
+
+`mock-net.py` at the repo root is a laptop stand-in for the UNO Q. It speaks the
+identical protocol, so proving the Lens against it means that when the real net
+arrives, any failure is the hardware and not the Lens. Zero dependencies, pure
+standard library, so there is nothing to install.
+
+```
+python3 mock-net.py
+```
+
+It prints the exact `ws://<your-laptop-ip>:8765` to paste into `serverUrl`.
+Untick `simulate` in the Lens and run it. Then:
+
+- Press Enter in the terminal to send a swing. The Lens should print `swing received` and capture a creature.
+- Type a number such as `2.9` to send a swing with that peak value.
+- When the Lens captures something, the terminal prints `<- haptic 3 (capture)`.
+- `q` quits.
+
+Seeing a swing go out and a haptic come back proves the whole message loop.
+Verified working by an automated round-trip test: handshake, masked inbound
+frame, unmasked outbound frame, correct JSON in both directions.
+
+Note your laptop and the Spectacles must be on the same network. A phone
+hotspot is the reliable choice, since it does not do client isolation.
+
+## Phase 4b - Test the Lens network path without hardware (15 min)
+
+`mock-net.py` is a laptop stand-in for the UNO Q. It speaks exactly the protocol
+in `main.py`, so it proves the Lens side of the WebSocket works before the
+hardware exists. When the real net arrives you change only the IP.
+
+It uses raw sockets and the standard library only. Nothing to install.
+
+```
+python3 mock-net.py
+```
+
+It prints the URL to use, for example `ws://172.20.10.2:8765`. Then in the Lens:
+
+1. Untick `simulate`
+2. Set `serverUrl` to the URL it printed
+3. Make sure Experimental APIs is on in Project Settings, or `ws://` is blocked
+4. Run the Lens
+
+Expected: the terminal shows `Lens connected from ...`. Press Enter to send a
+swing and a jellyfish should be captured. The terminal then logs
+`<- haptic 3 (capture)` coming back from the Lens.
+
+Controls: Enter sends a swing at the default peak, typing a number such as `2.9`
+sends a swing with that peak, `q` quits.
+
+That round trip is the whole protocol. If it works here, any later failure with
+the real net is a hardware or network problem, not a Lens problem. That is worth
+knowing in advance, because it removes half the search space when something
+breaks the day before filming.
+
+Verified by an automated round-trip test: handshake, masked inbound frame,
+unmasked outbound frame, correct JSON in both directions.
+
 ## Phase 5 - Build the Lens (half a day)
 
 The Lens is the critical path. It needs no hardware, so build it first and in
@@ -136,16 +212,42 @@ Steps 3 to 8 below have been done, via the Lens Studio MCP tools. The scene now 
 - `Jellyfish` prefab, sphere with the unlit `JellyfishGlow` material in cyan
 - `JellyfishRare` prefab, sphere with the unlit `JellyfishGold` material
 - `LumiCatch` scene object carrying the `LumiCatchManager` script component
-- `creaturePrefab`, `rarePrefab` and `camera` inputs wired, tuning calibrated for the Spectacles 2024 display
+- `ScoreText`, a world-space Text parented to the Camera Object at 100 cm forward and 25 cm down, so it is head locked and always in shot
+- `creaturePrefab`, `rarePrefab`, `camera` and `scoreText` inputs wired, tuning calibrated for the Spectacles 2024 display
 
-Verified by running the preview: compilation succeeds, and the log shows
-`LumiCatch: SIMULATE mode` followed by `LumiCatch: [sim] haptic pattern 1`,
-which proves creatures spawned and the AI update loop is running.
+Verified by running the preview and reading the logs:
 
-Still to add by hand, none of which blocks simulate mode:
+```
+LumiCatch: 5 of 5 creatures spawned in front. If this is 0, flip forwardSign.
+LumiCatch: SIMULATE mode. Click in preview or pinch on device.
+LumiCatch: [sim] haptic pattern 1
+```
 
-- **Internet Module** (Asset Browser + > Internet Module), then assign it to the `internetModule` input. Only needed when you untick `simulate`. The MCP tools cannot create this asset type.
-- Score Text, capture chime, ambient loop, burst prefab. All optional, all guarded with `@allowUndefined`.
+That first line settles `forwardSign`: at -1 every creature spawns in front of
+the camera, so the default is correct and does not need flipping.
+
+Still to add by hand, neither of which blocks simulate mode:
+
+- Capture chime, ambient loop, burst prefab. All optional, all guarded with `@allowUndefined`.
+
+Nothing else. The Internet Module is resolved in script, see below.
+
+### Two fixes that only showed up by running it
+
+Both were invisible in the code and obvious in the logs.
+
+**A jellyfish now starts inside the capture zone.** Previously the first
+creature spawned anywhere between 90 and 200 cm at a random angle, so roughly
+two thirds of the time there was nothing catchable at t=0 and the Guarantee had
+to swim one in. That is three wasted seconds at the start of every take. The
+first Drifter is now placed at `heroDistanceCm` directly ahead.
+
+**The proximity haptic is edge triggered.** It used to fire every
+`nearbyCooldownS` for as long as any creature sat inside `nearbyRangeCm`, which
+in practice meant the net buzzing every 2.5 seconds forever. It now fires once
+when a creature arrives, with a 1.25x hysteresis band so one hovering on the
+boundary cannot chatter the motor. Confirmed in the logs: one buzz at 0.9 s,
+then silence for the next 25 seconds.
 
 1. Open `Lumicatch/Lumicatch.esproj`. In Project Settings enable Experimental APIs (needed for plain `ws://` during development; published lenses require `wss://`, which does not matter for your video).
 2. Add an Internet Module from the Asset Browser (+ > Internet Module).
@@ -188,6 +290,132 @@ Three safeguards exist only to protect the filming, all switchable in the Inspec
 - **Guarantee** (`guaranteeEasyTarget`): if no easy target has been in front of you for `guaranteeDelayS`, a Drifter swims into range at `heroDistanceCm`. This is your one-take insurance and the single most valuable setting in the file.
 
 Turn all three off only if you are debugging the AI itself. Turn them back on before filming.
+
+### Room-wide spawning
+
+`spawnAllAround` (default on) spreads creatures through the full 360 degrees
+rather than a forward cone, so you turn your head and your body to find them.
+Confirmed working: the startup log reports roughly half the creatures in front,
+which is what a uniform ring should give.
+
+`creatureCount` is 14. Fourteen unlit spheres is cheap even on Spectacles, but
+if the frame rate drops on device this is the first number to lower.
+
+With creatures behind you, the leash changes meaning. The distance limit
+(`leashMaxCm`, 300) still applies so nothing escapes across the room, but the
+'behind you' rule is skipped when `spawnAllAround` is on, since being behind you
+is the entire point. Turn `spawnAllAround` off and the old forward-cone
+behaviour returns, along with the behind-you leash.
+
+The Guarantee still keeps one Drifter in front of you, and the first creature
+still starts inside the capture zone. Those are filming insurance and they
+survive the change to room-wide spawning.
+
+### Internet Module: nothing to install
+
+You do not need to add an Internet Module asset at all. Lens Studio exposes its
+built in modules to script through the `LensStudio:` prefix, so the script pulls
+one itself:
+
+```ts
+require('LensStudio:InternetModule')
+```
+
+`resolveInternetModule()` uses the Inspector slot if you have filled it, and
+falls back to that `require` if you have not. The `internetModule` input can
+stay empty forever.
+
+**Verified end to end**, with the input slot deliberately left empty: the Lens
+logged `connected to net`, and `mock-net.py` logged `Lens connected from
+127.0.0.1` followed by a real `<- haptic 1 (nearby)` message arriving over the
+socket. Connection and Lens-to-Net messaging both proven with no hardware and
+no asset.
+
+Do not install either Asset Library result that looks relevant:
+
+- **Remote Service Gateway** is a Snap-hosted proxy for third party cloud APIs. It ships with a companion 'Remote Service Gateway Token Generator', which tells you what it is. It needs a token and a cloud round trip, and it cannot reach a server on your own network. Wrong tool, and against the no-cloud constraint.
+- **WebSocketExamples** is a sample project. It contains an Internet Module asset, which is why it looks like the source, but you do not need to import a whole example project to get one.
+
+For context: `createWebSocket` moved from `RemoteServiceModule` to
+`InternetModule` in Lens Studio 5.9. We are on 5.15.4, so `InternetModule` is
+correct and current.
+
+### Two schools, and shoal mood
+
+Creatures are split between two schools, alternating as they spawn so the pair
+stays balanced as you catch and they respawn. Each school has a centre that
+orbits you slowly, and the two counter rotate so they sweep past each other
+rather than moving in lockstep. School centres use world axes, not camera axes,
+so turning your head does not drag the schools around with you.
+
+The shoal has a mood, and the mood is set by what you just did:
+
+| Mood | Trigger | Behaviour |
+|---|---|---|
+| Calm | default | Loose schools at `schoolMidCm` (170), cohesion 0.15 |
+| Spooked | `spookCatches` (3) catches within `spookWindowS` (8 s) | Schools pull tight (cohesion 0.75) and back off to `schoolFarCm` (250) for `spookSeconds` (5 s) |
+| Curious | `curiousMisses` (2) misses in a row | Formation breaks entirely (cohesion 0), each creature picks its own spot around you at `curiousDistanceCm` (85) for `curiousSeconds` (8 s) |
+
+Every mood change re-homes each creature and sets it swimming to the new spot
+rather than snapping, so the change is something you watch happen. It prints to
+the log too, which is how you confirm it fired:
+
+```
+LumiCatch: spooked, the schools are grouping tight and backing off
+LumiCatch: curious, the schools are dispersing and coming closer
+LumiCatch: the schools have settled
+```
+
+The read on camera is deliberate: catch three in a row and they flee as a shoal,
+which makes you look dangerous. Miss twice and they crowd in around you, which
+gives you an easy recovery and a good close-up. The game gets easier exactly
+when the take is going badly.
+
+**The Guarantee stands down while spooked.** Backing off is the point of that
+mood, and dragging a creature back would fight it. Spook lasts five seconds and
+only ever follows a run of successful catches, so a take is never stranded.
+
+### Why not boids
+
+Boids was considered and rejected. Three reasons, in order of weight:
+
+1. **It is the wrong read.** Boids produces flocking, which looks like a school of fish moving as one body. Jellyfish drift independently on their own currents. Flocking would make them look like the wrong animal.
+2. **It fights a rehearsed take.** Boids positions are emergent, so where the swarm goes is not predictable between takes. The whole design here is built on knowing what will be in front of the camera.
+3. **It costs more than it returns.** Neighbour queries are the expensive part, and the payoff is a behaviour that actively hurts points 1 and 2.
+
+The schools above are **not** boids. There are no neighbour queries and nothing
+emergent: each school has a centre point, creatures lerp towards it by a
+cohesion value, and that value is set by a mood your own catches and misses
+trigger. Same inputs, same behaviour, every take.
+
+The one piece of boids actually worth having is a
+**separation** rule (`separationCm`, 35) that pushes overlapping creatures
+apart. Two jellyfish occupying the same point is the single overlap artefact a
+viewer would notice, and separation alone fixes it. At 14 creatures that is 91
+pair checks per frame, which is free, and every creature keeps its own
+predictable path.
+
+If you want more life in the movement, raise `driftAmplitudeCm` or vary
+`spinRate`. Both are safe. Flocking is not.
+
+### Creature colour is set by the script, not the material
+
+The `JellyfishGlow` and `JellyfishGold` material assets are graph materials, and
+their colour does **not** persist when set from outside Lens Studio: writing
+`baseColor` or `Port_Default_N369` reports success and then reverts to white.
+That is why creatures first appeared as plain white spheres.
+
+Colour is therefore owned by the script. `COL_DRIFTER`, `COL_SKITTISH` and
+`COL_LUMEN` at the top of `LumiCatchManager.ts` define cyan, violet and gold.
+At spawn the prefab's material is cloned once per kind and tinted, so all three
+personalities are visually distinct from a single prefab.
+
+To change a colour, edit those three constants. Do not bother editing the
+material asset from a script or tool, it will not stick. Editing the colour by
+hand in the Lens Studio Material inspector does work, if you prefer that.
+
+Spectacles displays are additive: bright saturated colours read well and dark
+colours vanish. Keep all three constants bright.
 
 ### Spectacles 2024 display geometry, and why the tuning changed
 
@@ -270,11 +498,137 @@ Record the Spectacles capture and phone footage of the same take so the sync is 
 | Everything works, then dies mid-demo | Power bank auto-sleep at low draw | Use a bank with low-current mode, or add a small periodic LED blink to keep draw up |
 | Lens will not compile, error on the SIK import line | SIK package not unpacked into `Cache/TypeScript/Src/Packages` | Unlikely, this was verified present. If it happens, delete the `import { SIK }` line and the body of `bindPinch()`, and untick `usePinchToSwing`. You lose only the on-device pinch fallback |
 | Manager script seems to run after other scripts | Scene Hierarchy order | Lens Studio runs scripts top-down by hierarchy order. Keep the `LumiCatch` object near the top |
-| Preview is empty, no jellyfish | `forwardSign` wrong, or `creaturePrefab` unassigned | Flip `forwardSign` to 1, confirm the prefab slot is filled |
+| Preview is empty, no jellyfish | `forwardSign` wrong, or `creaturePrefab` unassigned | Read the startup log. `0 of 5 creatures spawned in front` means flip `forwardSign` to 1. Otherwise confirm the prefab slot is filled |
+| Net buzzes constantly | Old build without edge triggered proximity | Fixed. If it returns, check `nearbyActive` is being reset in `onUpdate` |
+| Nothing catchable for the first few seconds | Old build without the hero creature | Fixed. Confirm `guaranteeEasyTarget` is ticked |
+| Creatures are plain white spheres | Material colour set outside Lens Studio does not persist | Colour is applied by the script at spawn. Edit `COL_DRIFTER` / `COL_SKITTISH` / `COL_LUMEN` in `LumiCatchManager.ts`, or set it by hand in the Material inspector |
+| Log says 'no RenderMeshVisual found on the creature prefab' | Prefab has no mesh anywhere in its hierarchy | Rebuild the prefab from a Sphere object, the script searches the whole subtree |
+| Creatures feel sparse now they are all around | Only about a fifth are in view at any moment with a 27 degree display | Raise `creatureCount`, or turn `spawnAllAround` off to concentrate them ahead of you |
 | One jellyfish sits frozen and never moves | The prefab's original scene instance was left in the hierarchy | Delete it from Scene Hierarchy, the prefab asset is what matters |
 | Clicking in preview does nothing | `simulate` unticked | Tick `simulate`. It must be on for click and pinch to fake a swing |
 | Pinch does nothing on device | TapEvent does not fire on Spectacles | Expected. That is what `usePinchToSwing` is for, confirm it is ticked |
 | Captures fire twice per click | Click and pinch both firing | Already debounced to 0.4 s. If it persists, untick `usePinchToSwing` while previewing |
+
+## The AI layer (hackathon requirement)
+
+The hackathon requires the UNO Q's AI to be the project's main AI, and the
+pitch commits to two models. Both live in `neon_ai.py`, which runs on the
+Qualcomm Linux side inside App Lab. It imports nothing from Arduino, so the
+whole thing runs and is tested on a laptop and then drops onto the board
+unchanged.
+
+### 1. Predictive Trajectory AI
+
+`TrajectoryPredictor` forecasts a swing's peak before it happens, so the
+Spectacles are warned while the net is still moving. That lead time is what
+hides the WiFi round trip.
+
+It fits a parabola through three smoothed points of the acceleration magnitude
+and solves for the vertex. If that turning point falls inside the 100 ms
+horizon, it emits a prediction with the peak value the swing is heading for and
+a confidence score.
+
+A parabola rather than straight Newtonian extrapolation for a concrete reason:
+a swing decelerates harder the closer it gets to its peak, so projecting the
+current slope forward at constant acceleration lands the peak roughly **twice**
+as far ahead as it really is. On synthetic swings that error was 91 ms against
+a true 40 ms. The parabola fit brought it to 84 ms, and firing early is the
+safe direction for latency hiding.
+
+**Known limitation, to fix on hardware:** the forecast is still biased late by
+about 40 ms on synthetic traces. The early warning itself is sound, and it
+fires roughly 40 ms before the real peak, which covers most of the round trip.
+The `etaMs` number should be re-tuned against real IMU data before you rely on
+it for anything tighter.
+
+Safety property worth knowing: a prediction never awards a catch. The
+authoritative catch still happens on the confirmed `swing` message, so a wrong
+forecast can only ever be a wasted early warning.
+
+### 2. Adaptive Heuristics (DDA)
+
+`AdaptiveDifficulty` keeps the player near a target catch rate of 0.55. Every
+swing reports hit or miss, and over a sliding window of 10 the ratio moves a
+single difficulty value between 0 and 1. The Lens receives multipliers rather
+than the raw number, so it keeps its own tuned baselines and the board only
+scales them:
+
+| Field | Effect in the Lens |
+|---|---|
+| `speedMult` | flee and return speed |
+| `evasionMult` | how far a dodge carries |
+| `alertMult` | how early a creature notices the net |
+| `skittishBias` | proportion of creatures that flee at all |
+| `cloaking` | above 0.65, rare Lumen creatures shimmer towards black |
+
+Cloaking works because Spectacles displays are additive: fading a colour
+towards black genuinely fades it out of sight rather than turning it grey.
+
+### Getting the IMU stream to the Linux side
+
+The models need raw samples, not just finished swings, and the sketch samples
+at 200 Hz while the Linux poll runs at 30 Hz. So the sketch buffers magnitudes
+and hands over a batch on each poll through a new RPC:
+
+```cpp
+String get_samples()    // "1.02,1.15,1.44", then clears the buffer
+```
+
+The buffer holds 48 samples, well above the ~6 per poll, and drops oldest
+first if a poll runs late.
+
+**This is the one part not yet verified.** Everything else in the AI layer is
+tested; whether the Bridge returns a `String` cleanly is a hardware question.
+Test it first when the board arrives. If strings do not come through, the
+fallback is a fixed-width RPC returning one float at a time at a faster poll,
+at the cost of prediction resolution.
+
+### What is tested, and how
+
+```
+python3 test_neon_ai.py
+```
+
+Covers both models with synthetic swing traces: the predictor fires once per
+swing, fires before the peak, stays inside the horizon, ignores walking and
+sway, and re-arms between swings. The difficulty model rises on skilled play,
+falls on struggle, holds steady at the target rate, clamps at both ends, and
+waits for enough samples before reacting.
+
+`mock-net.py` imports the **same** models, so running it exercises the real AI
+rather than a stub. It synthesises an IMU trace per swing, pushes it through
+the predictor, and emits a genuine `predict` before the `swing`. Verified end
+to end: difficulty pushed on connect, `predict` 84 ms ahead of `swing`, twelve
+reported hits driving difficulty to 1.0, then fourteen misses pulling it back
+to 0.1.
+
+## Why the AI is scoped this way
+
+The UNO Q pairs a Qualcomm Dragonwing QRB2210 running Debian with an STM32U585
+running the sketch. The Qualcomm side can run edge AI: it has an Adreno 702 GPU
+and dual image signal processors, so inference is GPU assisted rather than on a
+dedicated NPU, and Edge Impulse supports the board directly.
+
+Both models are **heuristic**, matching the pitch's own wording of a
+'lightweight heuristic model' and 'Adaptive Heuristics'. That is a deliberate
+choice, not a shortcut:
+
+- They run inside the 30 Hz poll loop with room to spare, on a board whose inference is GPU assisted rather than backed by a dedicated NPU.
+- Their behaviour is inspectable and repeatable. A trained network's is not, and the whole project has to survive being filmed in one take.
+- They need no training data, which matters when the hardware is not yet assembled.
+
+The architecture is worth narrating in the video alongside the AI: **two
+processors, split by latency budget.** The STM32 samples the IMU at 200 Hz and
+times the vibration where microseconds matter, while the Qualcomm side runs the
+models and the WebSocket server where they do not. The sample buffer bridging
+them is exactly where that split becomes visible.
+
+If judges push for a trained model, the natural upgrade is **swing type
+classification** on Edge Impulse, which supports the UNO Q directly: tell an
+overhand scoop from a backhand sweep from a flick and send the class alongside
+the peak, so different catches score differently. The IMU stream is already
+being buffered and sent, so the data pipeline for it exists. Budget a day for
+collection and tuning.
 
 ## Realistic schedule
 
