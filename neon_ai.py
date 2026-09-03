@@ -66,11 +66,18 @@ class TrajectoryPredictor:
     so a single swing cannot fire a burst of forecasts.
     '''
 
+    # Defaults below are calibrated against real measurements from the net's
+    # IMU, not guesses:
+    #   at rest        ~0.87 g   (this module reads ~8 per cent low, harmless)
+    #   walking about   0.65 to 1.08 g, slope around 2 g/s
+    #   a real swing    peaks at 5.5 g, slope around 30 g/s
+    # So arming at 1.6 g clears walking with margin, and requiring 8 g/s of
+    # rise rules out the slow sway of carrying the net around.
     def __init__(self,
                  horizon_ms=DEFAULT_HORIZON_MS,
-                 arm_threshold_g=1.35,
-                 rearm_threshold_g=1.15,
-                 min_slope=2.0,
+                 arm_threshold_g=1.6,
+                 rearm_threshold_g=1.2,
+                 min_slope=8.0,
                  smoothing=3):
         self.horizon_ms = float(horizon_ms)
         self.arm_threshold_g = float(arm_threshold_g)

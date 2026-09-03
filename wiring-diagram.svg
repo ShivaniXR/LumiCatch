@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" font-family="Arial, Helvetica, sans-serif">
-  <rect width="960" height="640" fill="#0e1420"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 700" font-family="Arial, Helvetica, sans-serif">
+  <rect width="960" height="700" fill="#0e1420"/>
   <text x="480" y="36" fill="#ffffff" font-size="22" text-anchor="middle" font-weight="bold">LumiCatch Net - Wiring (Arduino UNO Q, 3.3 V logic)</text>
 
   <!-- UNO Q board -->
@@ -11,8 +11,8 @@
   <g font-size="14" fill="#ffffff">
     <circle cx="320" cy="180" r="6" fill="#ffd24d"/><text x="250" y="185">3V3</text>
     <circle cx="320" cy="220" r="6" fill="#9aa3ad"/><text x="250" y="225">GND</text>
-    <circle cx="320" cy="260" r="6" fill="#4dd2ff"/><text x="228" y="265">D20 SDA</text>
-    <circle cx="320" cy="300" r="6" fill="#4dff88"/><text x="228" y="305">D21 SCL</text>
+    <circle cx="320" cy="260" r="6" fill="#4dd2ff"/><text x="250" y="265">SDA</text>
+    <circle cx="320" cy="300" r="6" fill="#4dff88"/><text x="250" y="305">SCL</text>
     <circle cx="320" cy="380" r="6" fill="#ff7ab8"/><text x="205" y="385">D9 (PWM)</text>
     <circle cx="320" cy="440" r="6" fill="#9aa3ad"/><text x="250" y="445">GND</text>
   </g>
@@ -46,6 +46,7 @@
   <circle cx="600" cy="440" r="38" fill="#12324f" stroke="#8fd0ff" stroke-width="2"/>
   <text x="600" y="428" fill="#ffffff" font-size="13" text-anchor="middle" font-weight="bold">2N2222</text>
   <text x="600" y="444" fill="#a9c6ff" font-size="11" text-anchor="middle">NPN</text>
+  <text x="600" y="500" fill="#ffd24d" font-size="11" text-anchor="middle">flat face toward you: E B C</text>
   <text x="548" y="418" fill="#ffffff" font-size="12">B</text>
   <text x="612" y="392" fill="#ffffff" font-size="12">C</text>
   <text x="612" y="498" fill="#ffffff" font-size="12">E</text>
@@ -84,8 +85,13 @@
 
   <!-- Notes -->
   <g font-size="13" fill="#c7ced8">
-    <text x="60" y="572">Notes: UNO Q pins are 3.3 V logic. Power the MPU-6050 from 3V3, never from 5 V (its pull-ups would drag SDA/SCL to 5 V).</text>
-    <text x="60" y="592">The diode sits directly across the motor terminals and absorbs the voltage spike when the motor switches off.</text>
-    <text x="60" y="612">D9 never drives the motor directly - the transistor carries the motor current, D9 only supplies the small base current.</text>
+    <text x="60" y="566">Use the header pins marked SDA and SCL on the silkscreen. Wire.begin() takes no arguments, so the core picks the right pins.</text>
+    <text x="60" y="586">UNO Q pins are 3.3 V logic. Power the MPU-6050 from 3V3, never from 5 V (its pull-ups would drag SDA/SCL to 5 V).</text>
+    <text x="60" y="606">The diode sits directly across the motor terminals and absorbs the voltage spike when the motor switches off.</text>
+    <text x="60" y="626">D9 never drives the motor directly - the transistor carries the motor current, D9 only supplies the small base current.</text>
+  </g>
+  <g font-size="13" fill="#ffb4a2">
+    <text x="60" y="654">Transistor pinout varies between manufacturers. Check your own part. A transistor that warms up means base and collector are swapped: cut power.</text>
+    <text x="60" y="674">Secure every jumper. A momentary loss of VCC resets the MPU-6050 into sleep, where it still answers on I2C but returns only zeros.</text>
   </g>
 </svg>

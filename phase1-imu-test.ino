@@ -14,15 +14,23 @@
  * Wire.begin() takes no pin arguments on purpose: the core already knows the
  * board's default I2C pins, so there is nothing to look up or mistype.
  *
- * This does three things the old smoke test did not:
- *   1. Checks something actually answers at address 0x68.
- *   2. Reads WHO_AM_I, which separates 'wiring wrong' from 'wrong chip'.
- *   3. Prints magnitude in g and tracks the peak, which is the exact signal
- *      the swing detector and the trajectory model both consume. Swing the
- *      breadboard and you are reading the numbers that tune the whole system.
+ * PRINTING ON THE UNO Q
+ * Including Arduino_RouterBridge.h replaces the classic Serial with Monitor.
+ * Monitor.begin() must be called or nothing reaches the App Lab console, and
+ * a pause afterwards is needed before the first line survives. This is the
+ * single most common reason a UNO Q sketch looks dead when it is running fine.
+ *
+ * This checks three things:
+ *   1. That something actually answers at address 0x68.
+ *   2. WHO_AM_I, which separates 'wiring wrong' from 'wrong chip'.
+ *   3. Magnitude in g, plus the running peak. That is the exact signal the
+ *      swing detector thresholds on and the trajectory model differentiates,
+ *      so swinging the bare breadboard now tells you what to set the
+ *      thresholds to before anything is taped to a net handle.
  */
 
 #include <Wire.h>
+#include "Arduino_RouterBridge.h"
 
 const uint8_t MPU_ADDR     = 0x68;
 const uint8_t REG_WHO_AM_I = 0x75;
@@ -33,6 +41,8 @@ const float   LSB_PER_G    = 4096.0f;   // +/-8 g range
 
 float peakSeen = 0.0f;
 unsigned long lastPrint = 0;
+int zeroRun = 0;          // consecutive dead reads
+int recoveries = 0;       // how many times we have revived the sensor
 
 void mpuWrite(uint8_t reg, uint8_t val) {
   Wire.beginTransmission(MPU_ADDR);
@@ -64,72 +74,102 @@ bool mpuReadAccel(float &gx, float &gy, float &gz) {
   return true;
 }
 
+/*
+ * Wake the sensor and set its range. Split out from setup() because it has to
+ * be callable again at runtime: if the module browns out for even a moment,
+ * say a jumper twitching while you swing, it resets straight back into sleep
+ * mode. Asleep it still acknowledges on I2C perfectly happily and simply
+ * returns zeros for every data register, so the failure is completely silent.
+ */
+void mpuInit() {
+  mpuWrite(REG_PWR_MGMT, 0x00);   // out of sleep
+  delay(10);
+  mpuWrite(REG_ACC_CFG, 0x10);    // +/-8 g, matches sketch.ino
+  delay(10);
+}
+
 void setup() {
-  Serial.begin(115200);
-  delay(500);
+  Monitor.begin();
+  delay(3000);          // without this the opening lines are lost
 
   Wire.begin();
   delay(200);
 
-  Serial.println();
-  Serial.println("=== Neon-Net Phase 1: IMU check ===");
+  Monitor.println("");
+  Monitor.println("=== Neon-Net Phase 1: IMU check ===");
 
   // --- Test 1: is anything on the bus? ---
   Wire.beginTransmission(MPU_ADDR);
   uint8_t err = Wire.endTransmission();
   if (err != 0) {
-    Serial.println("FAIL: nothing answering at 0x68.");
-    Serial.println("      Check SDA and SCL are not swapped.");
-    Serial.println("      Check VCC is on 3V3 and GND is connected.");
-    Serial.println("      If the module has an AD0 pin, leave it unconnected.");
+    Monitor.println("FAIL: nothing answering at 0x68.");
+    Monitor.println("      Check SDA and SCL are not swapped.");
+    Monitor.println("      Check VCC is on 3V3 and GND is connected.");
+    Monitor.println("      If the module has an AD0 pin, leave it unconnected.");
   } else {
-    Serial.println("PASS: a device answered at 0x68");
+    Monitor.println("PASS: a device answered at 0x68");
   }
 
   // --- Test 2: is it the chip we think it is? ---
   uint8_t who = mpuRead(REG_WHO_AM_I);
-  Serial.print("WHO_AM_I = 0x");
-  Serial.println(who, HEX);
+  Monitor.print("WHO_AM_I = 0x");
+  Monitor.println(who, HEX);
   if (who == 0x68) {
-    Serial.println("PASS: genuine MPU-6050");
+    Monitor.println("PASS: genuine MPU-6050");
   } else if (who == 0x70 || who == 0x71 || who == 0x73) {
-    Serial.println("NOTE: this is an MPU-6500/9250 clone. Still fine,");
-    Serial.println("      the registers we use are the same.");
+    Monitor.println("NOTE: MPU-6500/9250 clone. Fine, same registers.");
   } else {
-    Serial.println("WARN: unexpected WHO_AM_I, check wiring before trusting data");
+    Monitor.println("WARN: unexpected WHO_AM_I, recheck wiring");
   }
 
   // --- Wake it and set the range ---
-  mpuWrite(REG_PWR_MGMT, 0x00);   // out of sleep
-  mpuWrite(REG_ACC_CFG, 0x10);    // +/-8 g, matches sketch.ino
+  mpuInit();
   delay(50);
 
-  Serial.println();
-  Serial.println("Hold it still: magnitude should sit near 1.00 g.");
-  Serial.println("Then swing it like a net and watch the peak.");
-  Serial.println();
+  Monitor.println("");
+  Monitor.println("Hold it still: magnitude should sit near 1.00 g.");
+  Monitor.println("Then swing it like a net and watch the peak.");
+  Monitor.println("");
 }
 
 void loop() {
   float gx, gy, gz;
   if (!mpuReadAccel(gx, gy, gz)) {
-    Serial.println("read failed");
+    Monitor.println("read failed");
     delay(500);
     return;
   }
 
   float mag = sqrtf(gx * gx + gy * gy + gz * gz);
+
+  // Gravity is always there, so a magnitude of essentially zero means the
+  // sensor has dropped back into sleep, not that the net is weightless.
+  // Twenty dead samples is 100 ms, short enough that a swing survives it.
+  if (mag < 0.05f) {
+    zeroRun++;
+    if (zeroRun >= 20) {
+      zeroRun = 0;
+      recoveries++;
+      mpuInit();
+      Monitor.print("!! sensor had reset to sleep, woken again (recovery #");
+      Monitor.print(recoveries);
+      Monitor.println("). Check VCC and GND are firmly seated.");
+    }
+  } else {
+    zeroRun = 0;
+  }
+
   if (mag > peakSeen) peakSeen = mag;
 
-  // Sample fast so the peak is real, but print slowly so it stays readable.
+  // Sample fast so the peak is real, print slowly so it stays readable.
   if (millis() - lastPrint >= 200) {
     lastPrint = millis();
-    Serial.print("x ");   Serial.print(gx, 2);
-    Serial.print("  y "); Serial.print(gy, 2);
-    Serial.print("  z "); Serial.print(gz, 2);
-    Serial.print("   |mag| "); Serial.print(mag, 2);
-    Serial.print(" g   peak "); Serial.print(peakSeen, 2);
-    Serial.println(" g");
+    Monitor.print("x ");   Monitor.print(gx, 2);
+    Monitor.print("  y "); Monitor.print(gy, 2);
+    Monitor.print("  z "); Monitor.print(gz, 2);
+    Monitor.print("   |mag| "); Monitor.print(mag, 2);
+    Monitor.print(" g   peak "); Monitor.print(peakSeen, 2);
+    Monitor.println(" g");
   }
 
   delay(5);   // ~200 Hz, the same rate the real firmware samples at

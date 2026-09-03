@@ -82,13 +82,91 @@ void loop() {
 }
 ```
 
-3. Open the console. At rest one axis should read roughly 16000 (that is 1 g at the default range). Shake the board and the numbers should jump. If you see zeros or the sketch hangs, check SDA/SCL are not swapped and that AD0 on the breakout is unconnected or tied to GND (address 0x68).
+3. Open **`Console > Serial Monitor`**. Not the deploy log, and not the Python console. App Lab has three separate output panels and only the Serial Monitor shows sketch output:
+
+| Console | Shows |
+|---|---|
+| **Serial Monitor** | `Monitor.println` from the sketch, over the Router Bridge |
+| **Python** | `print()` from `main.py` on the Linux side |
+| Deploy log | compile, flash and container startup. Ends in `Container ... Started` |
+
+Wait about five seconds after starting. Three of those are the deliberate delay after `Monitor.begin()`.
+
+Expected: `PASS: a device answered at 0x68`, `WHO_AM_I = 0x68`, then a stream of readings with magnitude near 1.00 g at rest. If you see zeros or the sketch hangs, check SDA/SCL are not swapped and that AD0 on the breakout is unconnected or tied to GND (address 0x68).
+
+### Measured calibration (Phase 1 results)
+
+Real numbers off this net's own IMU. Every threshold in the project is now set
+from these rather than from theory:
+
+| State | Magnitude | Slope |
+|---|---|---|
+| At rest | ~0.87 g | 0 |
+| Walking about holding it | 0.65 to 1.08 g | ~2.7 g/s |
+| A real swing | peaks at **5.50 g** | ~30 g/s |
+
+A five times separation between walking and swinging, which is a comfortable
+margin. What it set:
+
+| Value | Where | Was | Now | Why |
+|---|---|---|---|---|
+| `SWING_THRESHOLD_G` | `sketch.ino` | 2.2 | 2.2, kept | Twice the worst walking reading, under half a swing. The default happened to be right, and is now confirmed rather than assumed |
+| `arm_threshold_g` | `neon_ai.py` | 1.35 | **1.6** | 1.35 sat barely above the 1.08 g walking peak. Too close |
+| `rearm_threshold_g` | `neon_ai.py` | 1.15 | **1.2** | Follows the arm threshold |
+| `min_slope` | `neon_ai.py` | 2.0 | **8.0** | Walking produces about 2.7 g/s, so the old value could be tripped by carrying the net. A swing gives ~30 g/s, so 8 sits cleanly between |
+
+The module reads about 8 per cent low, so 1 g of gravity shows as 0.87 g. That
+is normal gain error on cheap MPU-6050 boards and needs no correction, because
+every threshold is set from measured values rather than theoretical ones.
+
+Against the real 5.5 g swing profile the predictor fires **35 ms before the
+peak** with 0.59 confidence, which covers most of the WiFi round trip. The
+test suite now includes that exact profile, plus the measured walking trace and
+a worst case jostling carry, all of which must produce no prediction.
+
+**Re-measure after Phase 6.** Mounting the sensor near the hoop lengthens the
+lever arm, so the same swing will read higher than it does on a bare
+breadboard. Expect to raise `SWING_THRESHOLD_G`.
+
+### Connection reliability is the real hardware risk
+
+The first swing test killed the sensor: a jumper moved, the MPU lost power for
+an instant, reset into sleep mode, and returned zeros from then on while still
+acknowledging on I2C. Silent, mid-motion, and it looks exactly like a dead
+sensor.
+
+Two defences, and you need both.
+
+**Firmware.** `sketch.ino` and `phase1-imu-test.ino` now watch for a magnitude
+of essentially zero. Gravity never goes away, so twenty dead samples in a row
+(100 ms) means the sensor slept rather than the net going weightless. It
+re-wakes automatically and prints a recovery count. Note this is a safety net,
+not a fix: if the message appears, the wiring still needs attention.
+
+**Wiring.** This whole project is a breadboard being swung through the air, so
+treat connections as the primary failure mode:
+
+- Push every jumper fully home. Half-seated pins are what move first.
+- Prefer the shortest jumpers you have. Long loops whip about and lever pins out.
+- Once Phase 1 passes, tape the jumper bundle to the breadboard so the strain lands on tape rather than pins.
+- At assembly, hot glue or tape over the MPU's four connections. This is the single highest-value thirty seconds in the build.
+- If you own a soldering iron, soldering the MPU's four wires directly removes this entire class of failure. Worth it before filming.
 
 ## Phase 2 - Prove the motor works (30 min)
 
 Build the transistor circuit on the mini breadboard exactly as in `wiring-diagram.svg`: D9 through the 1 kΩ resistor to the base, emitter to GND, motor between 3V3 and the collector, 1N4007 across the motor with its band towards the 3V3 side.
 
-Run this in place of the previous sketch:
+Use `phase2-motor-test.ino` from the repo root. It runs three tests and then
+stops with the motor off:
+
+- **A. Three pulses.** Proves the circuit switches at all.
+- **B. A PWM ramp** from 40 to 255. Coin motors need a minimum duty before they turn, usually well above zero. Note the first value you can feel: that is the motor's starting floor, and it tells you how much room the patterns actually have.
+- **C. The four game patterns**, announced before each, copied verbatim from `sketch.ino`. Hold it the way you will hold the net handle and decide whether you can tell all four apart. Four patterns that blur into each other through a handle are three wasted patterns, and this is the cheapest moment to find out.
+
+If the transistor warms up at all, cut power immediately: that is base and
+collector swapped.
+
+The older minimal test still works if you want the absolute simplest check:
 
 ```cpp
 const int MOTOR = D9;
@@ -291,6 +369,64 @@ Three safeguards exist only to protect the filming, all switchable in the Inspec
 
 Turn all three off only if you are debugging the AI itself. Turn them back on before filming.
 
+### The sense strand: showing the AI on camera
+
+Both models ran invisibly for most of the build. They worked, but a judge
+watching the video would have seen jellyfish moving and had to take the AI on
+trust. The strand fixes that without turning the game into a dashboard.
+
+It is framed as **the net's own bioluminescence**, not an overlay. It borrows
+the creature palette so it belongs to the same world:
+
+| Shoal mood | Strand colour |
+|---|---|
+| Calm | cyan, as the Drifters |
+| Curious | violet, as the Skittish |
+| Spooked | gold, as the Lumen |
+
+It is a drift of small bioluminescent **motes**, not a bar. The first version
+was a scaled box and looked like a progress meter bolted onto an underwater
+scene, which is exactly the wrong register.
+
+- **Eleven motes** hang in a shallow droop low in the view, bobbing gently out of phase.
+- **How far the glow reaches along them** is how alert the shoal has become. The edge is soft, so the glow tapers rather than stepping.
+- **A bright wave** runs their length the instant a swing is sensed, flaring each mote towards white as it passes. This is the one moment the AI is directly visible, and it is the shot worth cutting to in the video.
+
+The motes are instantiated from the **creature prefab itself**, so the strand
+is literally made of the same light as the jellyfish. That also means no scene
+objects to create and no Inspector wiring to get wrong.
+
+**`MoodWhisper`** is a line of text under the strand that fades in when
+something changes and fades straight back out, so the view stays clear:
+`the shoal scatters`, `they drift closer`, `sensed +84ms`.
+
+Everything is positioned, scaled and coloured by the script every frame. That
+is deliberate: editor-side transforms on camera children do not survive a
+reload, exactly like the material colours.
+
+Fading uses **real alpha**, with `blendMode` set to `Normal` and `depthWrite`
+off so overlapping motes blend instead of punching holes in each other. An
+earlier version faded towards black on the theory that additive displays make
+dark equal invisible; on screen it just looked muddy.
+
+**The strand works without hardware.** With `simulate` on there is no board
+sending difficulty or predictions, so the strand used to sit dark at zero.
+It now reads a local rolling catch history as a stand-in, and every simulated
+swing sends a wave. Play in preview and it responds.
+
+Tuning lives on the manager: `hudDistanceCm` (100, the focus plane),
+`hudWidthCm` (30), `hudYCm` (-20), `hudMoteCount` (11), `hudMoteBaseCm`,
+`hudMoteLitCm`, `hudArcCm`, `pulseTravelS`, `moodHoldS`, `scoreScale` (1.5)
+and `moodScale`.
+
+**If the strand does not appear**, the likely cause is the same forward-axis
+question as `forwardSign`: the pieces sit at local `-z` from the camera, so
+flipping the sign of `hudDistanceCm` puts them in front instead of behind.
+
+Verified end to end against `mock-net.py` running the real models: the Lens
+connected, received `difficulty 0.35`, and logged `swing predicted in 83.7 ms`
+followed by the confirmed swing.
+
 ### Room-wide spawning
 
 `spawnAllAround` (default on) spreads creatures through the full 360 degrees
@@ -490,9 +626,15 @@ Record the Spectacles capture and phone footage of the same take so the sync is 
 |---|---|---|
 | MPU reads zeros | SDA/SCL swapped, or 5 V power | Rewire per diagram, use 3V3 |
 | No swing prints | Threshold too high, loose sensor | Lower threshold, tape sensor rigidly |
+| Readings fine at rest, all zeros the moment you move it | The MPU browned out and reset into **sleep mode**. Asleep it still ACKs on I2C and returns zeros, so it looks like a dead sensor rather than a loose wire | Firmware now detects this and re-wakes it automatically, printing `IMU had reset to sleep`. If that message appears at all, fix the wiring: it is a warning, not a cure |
+| `peak` value goes **down** | The sketch restarted | Peak only ever climbs, so a decrease means a reset. Usually a power glitch from a moving jumper |
+| Magnitude reads about 0.92 g at rest instead of 1.00 | Normal gain error on cheap MPU-6050 modules | Harmless. Thresholds are relative, so set them from what you actually measure rather than from theory |
 | Motor never buzzes | Transistor pins reversed | Check E-B-C order against datasheet |
 | `websockets` import error | Dependency missing | `sudo apt install python3-websockets` |
 | `Bridge.call` returns None | App Lab version quirk | Open the built-in Bridge example in App Lab and match its call style |
+| Sketch uploads fine, console stays empty | Looking at the deploy log, not the Serial Monitor | App Lab has three consoles. Sketch output is `Console > Serial Monitor`. The log ending in `Container ... Started` is the deploy log and never shows sketch output |
+| Sketch uploads fine, Serial Monitor still empty | Used `Serial` instead of `Monitor` | Including `Arduino_RouterBridge.h` replaces `Serial` with `Monitor` on the UNO Q. Call `Monitor.begin()` and use `Monitor.print`. This is the most common reason a working sketch looks dead |
+| First few printed lines are missing | `Monitor` needs time after `begin()` | Add `delay(3000)` straight after `Monitor.begin()` |
 | Laptop connects, Spectacles will not | Router client isolation | Use a phone hotspot for UNO Q + Spectacles |
 | Lens preview connects, device does not | Experimental APIs off, or wrong IP | Enable in Project Settings, re-check `hostname -I` |
 | Everything works, then dies mid-demo | Power bank auto-sleep at low draw | Use a bank with low-current mode, or add a small periodic LED blink to keep draw up |
@@ -502,6 +644,8 @@ Record the Spectacles capture and phone footage of the same take so the sync is 
 | Net buzzes constantly | Old build without edge triggered proximity | Fixed. If it returns, check `nearbyActive` is being reset in `onUpdate` |
 | Nothing catchable for the first few seconds | Old build without the hero creature | Fixed. Confirm `guaranteeEasyTarget` is ticked |
 | Creatures are plain white spheres | Material colour set outside Lens Studio does not persist | Colour is applied by the script at spawn. Edit `COL_DRIFTER` / `COL_SKITTISH` / `COL_LUMEN` in `LumiCatchManager.ts`, or set it by hand in the Material inspector |
+| Changed a default in the code and nothing happened | **Once an `@input` exists, the Inspector's stored value wins over the code default** | Change it in the Inspector, not in the source. This has caused several 'the fix did nothing' rounds. Editing a default only affects inputs Lens Studio has never seen |
+| Sense strand invisible | Motes too small to notice | Run the preview and read `mote 0 world scale ... cm, ... cm away`. Below about 3 cm at 1 m they vanish into the background. Raise `hudMoteLitCm` |
 | Log says 'no RenderMeshVisual found on the creature prefab' | Prefab has no mesh anywhere in its hierarchy | Rebuild the prefab from a Sphere object, the script searches the whole subtree |
 | Creatures feel sparse now they are all around | Only about a fifth are in view at any moment with a 27 degree display | Raise `creatureCount`, or turn `spawnAllAround` off to concentrate them ahead of you |
 | One jellyfish sits frozen and never moves | The prefab's original scene instance was left in the hierarchy | Delete it from Scene Hierarchy, the prefab asset is what matters |
@@ -563,6 +707,27 @@ scales them:
 
 Cloaking works because Spectacles displays are additive: fading a colour
 towards black genuinely fades it out of sight rather than turning it grey.
+
+### Hardening for a filmed take
+
+Two problems found by reviewing the code that runs on the board, both fixed
+before either file had ever executed:
+
+**The sample buffer had a threading race.** `get_samples()` runs on the Bridge
+RPC thread while `loop()` appends to the same array. When the buffer filled,
+`loop()` shifted all 48 entries down, and that shift was the longest stretch
+where both threads touched the same slots. Indices were always in bounds so it
+could not crash, but it could hand the predictor garbled values. Overflow now
+starts a fresh batch instead, which is a single assignment. It only triggers if
+the Linux side stalls for over 240 ms, which should never happen at 30 Hz.
+
+**A Bridge failure could kill the whole Linux side.** Any exception raised out
+of the user loop takes the process down, and mid-take that means the net simply
+stops existing. Every call now goes through `bridge_call()`, which swallows
+failures, logs the first and then every hundredth, and returns `None`. A dropped
+poll is recoverable; a dead process is not. The haptic call in the WebSocket
+handler is guarded the same way, so a failed buzz cannot drop the Spectacles
+connection.
 
 ### Getting the IMU stream to the Linux side
 

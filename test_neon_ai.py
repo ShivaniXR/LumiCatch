@@ -90,14 +90,31 @@ pred2 = TrajectoryPredictor()
 quiet = [pred2.update(t, m) for t, m in idle_trace(1.0)]
 check('silent when the net is still', not any(quiet))
 
-# --- gentle drift must not trigger a swing ---
+# --- real measured walking must not trigger a swing ---
+# Profile taken from the actual net IMU while walking about holding it:
+# magnitude swings between 0.65 and 1.08 g at roughly a 2 Hz stride, which
+# works out at about 2.7 g/s of slope. This is the trace that matters, since
+# a false swing while walking to your mark ruins a take.
 pred3 = TrajectoryPredictor()
 walk = []
-for i in range(400):
+for i in range(1200):
     t = i * DT
-    mag = 1.0 + 0.15 * math.sin(t * 3.0)     # slow sway, well under threshold
+    mag = 0.865 + 0.215 * math.sin(2.0 * math.pi * 2.0 * t)
     walk.append(pred3.update(t, mag))
-check('ignores slow sway and walking', not any(walk))
+check('ignores real measured walking (0.65-1.08 g)', not any(walk),
+      '(fired %d times)' % sum(1 for w in walk if w))
+
+# --- and a brisk, jostling carry, worst case ---
+pred3b = TrajectoryPredictor()
+jostle = []
+for i in range(1200):
+    t = i * DT
+    mag = (0.9
+           + 0.3 * math.sin(2.0 * math.pi * 2.5 * t)
+           + 0.15 * math.sin(2.0 * math.pi * 6.0 * t))
+    jostle.append(pred3b.update(t, mag))
+check('ignores brisk jostling carry', not any(jostle),
+      '(fired %d times)' % sum(1 for j in jostle if j))
 
 # --- re-arms so a second swing is also caught ---
 pred4 = TrajectoryPredictor()
@@ -112,6 +129,29 @@ for swing in range(3):
         pred4.update(t, mag)
     t0 += 0.3
 check('re-arms between swings', count == 3, '(caught %d of 3)' % count)
+
+# --- the real measured swing: rest 0.87 g, peak 5.5 g ---
+# These are the numbers the actual net produced, so this is the case that
+# decides whether the predictor works in the video.
+pred_real = TrajectoryPredictor()
+real_trace = swing_trace(peak_g=5.5, rise_s=0.15, rest_g=0.87)
+real_peak_t = real_trace[len(real_trace) // 2][0]
+real_fired = []
+for t, mag in real_trace:
+    p = pred_real.update(t, mag)
+    if p:
+        real_fired.append((t, p))
+
+check('fires on the real measured 5.5 g swing', len(real_fired) == 1,
+      '(fired %d times)' % len(real_fired))
+if real_fired:
+    ft, rp = real_fired[0]
+    real_lead = (real_peak_t - ft) * 1000.0
+    check('real swing gives useful warning time', real_lead > 20.0,
+          '(lead %.1f ms)' % real_lead)
+    check('real swing scores decent confidence', rp.confidence >= 0.5,
+          '(%.2f)' % rp.confidence)
+    print('        -> %r, real lead %.1f ms' % (rp, real_lead))
 
 # --- a harder, faster swing should still be caught ---
 pred5 = TrajectoryPredictor()

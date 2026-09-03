@@ -1,7 +1,7 @@
 /*
  * LumiCatch Net - MCU firmware (Arduino UNO Q, STM32 side)
  * ---------------------------------------------------------
- * - Reads MPU-6050 over I2C (Wire: D20 SDA / D21 SCL) with raw
+ * - Reads MPU-6050 over I2C (the pins marked SDA / SCL) with raw
  *   register access, so no external library is required.
  * - Detects swings with an acceleration-magnitude threshold,
  *   captures the peak over a short window, then debounces.
@@ -15,6 +15,11 @@
  *   2 = double pulse  (rare creature)
  *   3 = long buzz     (capture)
  *   4 = rapid triple  (combo capture)
+ *
+ * Printing: Arduino_RouterBridge.h replaces Serial with Monitor on this board.
+ * Monitor.begin() is required, and the pause after it stops the first lines
+ * being swallowed. Use Monitor.print, never Serial.print, or the App Lab
+ * console stays empty and the sketch looks dead while running perfectly.
  */
 
 #include <Wire.h>
@@ -31,6 +36,14 @@ const uint8_t REG_ACC_XOUT  = 0x3B;
 const float   LSB_PER_G     = 4096.0f;  // +/-8g range
 
 // ---------- Swing detection tuning ----------
+// Measured on this net's own IMU during Phase 1:
+//   at rest    ~0.87 g   (this module reads about 8 per cent low, harmless)
+//   walking     0.65 to 1.08 g
+//   real swing  peaks at 5.50 g
+// 2.2 sits twice above the worst walking reading and well under half a swing,
+// so it has margin in both directions. Re-measure after the net is assembled:
+// mounting the sensor near the hoop lengthens the lever arm and will push
+// swing peaks higher.
 const float SWING_THRESHOLD_G = 2.2f;   // raise if false triggers, lower if misses
 const unsigned long PEAK_WINDOW_MS = 150;
 const unsigned long DEBOUNCE_MS    = 400;
@@ -47,6 +60,14 @@ volatile int   requestedPattern = 0;    // set by play_haptic RPC
 const int SAMPLE_BUF = 48;
 volatile float sampleBuf[SAMPLE_BUF];
 volatile int   sampleCount = 0;
+
+// ---------- Sensor watchdog ----------
+// A brief brownout, a jumper twitching mid-swing, resets the MPU-6050 into
+// sleep mode. Asleep it still ACKs on I2C and just returns zeros, so the
+// failure is completely silent. Gravity is always present, so a magnitude of
+// essentially zero means the sensor died rather than the net being weightless.
+int zeroRun = 0;
+int sensorRecoveries = 0;
 
 // ---------- Swing state machine ----------
 enum SwingState { IDLE, PEAKING, COOLDOWN };
@@ -84,7 +105,12 @@ void play_haptic(int pattern) {
 String get_samples() {
   // Hands the buffered magnitudes to the Linux side and empties the buffer.
   // Comma separated, two decimals: "1.02,1.15,1.44".
-  // Kept short deliberately, this runs on the Bridge RPC thread.
+  //
+  // This runs on the Bridge RPC thread while loop() is appending to the same
+  // array, so keep it short. The count is captured and clamped up front, so
+  // indices stay in bounds whatever loop() does meanwhile. The worst case is
+  // a sample arriving mid-read and being dropped, which costs one 5 ms
+  // reading out of roughly six per poll and is not worth locking for.
   String out = "";
   int n = sampleCount;
   if (n > SAMPLE_BUF) n = SAMPLE_BUF;
@@ -119,17 +145,24 @@ bool mpuReadAccel(float &gx, float &gy, float &gz) {
   return true;
 }
 
+void mpuInit() {
+  mpuWrite(REG_PWR_MGMT, 0x00);  // wake up
+  delay(10);
+  mpuWrite(REG_ACC_CFG, 0x10);   // +/-8g
+  delay(10);
+}
+
 // ================= Setup =================
 
 void setup() {
-  Serial.begin(115200);
+  Monitor.begin();
+  delay(3000);   // Monitor needs a moment or the first lines are lost
   pinMode(MOTOR_PIN, OUTPUT);
   analogWrite(MOTOR_PIN, 0);
 
   Wire.begin();
   delay(100);
-  mpuWrite(REG_PWR_MGMT, 0x00);  // wake up
-  mpuWrite(REG_ACC_CFG, 0x10);   // +/-8g
+  mpuInit();
   delay(50);
 
   Bridge.begin();
@@ -142,7 +175,7 @@ void setup() {
   delay(150);
   analogWrite(MOTOR_PIN, 0);
 
-  Serial.println("LumiCatch net ready");
+  Monitor.println("LumiCatch net ready");
 }
 
 // ================= Loop =================
@@ -152,17 +185,47 @@ void loop() {
 
   // ----- 1. Read IMU and run swing detection -----
   float gx, gy, gz;
-  if (mpuReadAccel(gx, gy, gz)) {
-    float mag = sqrtf(gx * gx + gy * gy + gz * gz);
+  bool sensorLive = false;
+  float mag = 0.0f;
 
+  if (mpuReadAccel(gx, gy, gz)) {
+    mag = sqrtf(gx * gx + gy * gy + gz * gz);
+
+    // Sensor watchdog. 20 dead samples is 100 ms, short enough that a real
+    // swing survives it, long enough not to fire on noise.
+    if (mag < 0.05f) {
+      zeroRun++;
+      if (zeroRun >= 20) {
+        zeroRun = 0;
+        sensorRecoveries++;
+        mpuInit();
+        Monitor.print("IMU had reset to sleep, woken again (recovery #");
+        Monitor.print(sensorRecoveries);
+        Monitor.println(")");
+      }
+    } else {
+      zeroRun = 0;
+      sensorLive = true;
+    }
+  }
+
+  // Never 'return' early from here: the haptic state machine below still has
+  // to run, or a motor caught mid-pattern stays switched on. A dead sensor
+  // must not become a motor stuck at full power on the net handle.
+  if (sensorLive) {
     // Buffer for the Linux side's trajectory model. If the buffer fills
     // because a poll was late, drop the oldest rather than the newest: the
     // predictor cares about the most recent motion.
     if (sampleCount < SAMPLE_BUF) {
       sampleBuf[sampleCount++] = mag;
     } else {
-      for (int i = 1; i < SAMPLE_BUF; i++) sampleBuf[i - 1] = sampleBuf[i];
-      sampleBuf[SAMPLE_BUF - 1] = mag;
+      // Overflow means the Linux side has not polled for over 240 ms, which
+      // should never happen at 30 Hz. Start a fresh batch rather than shifting
+      // the whole array down: that shift was the longest stretch where the
+      // Bridge RPC thread could be reading these same slots mid-move, and the
+      // predictor only cares about recent motion anyway.
+      sampleBuf[0] = mag;
+      sampleCount = 1;
     }
 
     switch (swingState) {
@@ -178,8 +241,8 @@ void loop() {
         if (mag > windowPeak) windowPeak = mag;
         if (now - swingTimer >= PEAK_WINDOW_MS) {
           pendingPeak = windowPeak;   // hand off to Linux side
-          Serial.print("Swing peak: ");
-          Serial.println(windowPeak);
+          Monitor.print("Swing peak: ");
+          Monitor.println(windowPeak);
           swingState = COOLDOWN;
           swingTimer = now;
         }

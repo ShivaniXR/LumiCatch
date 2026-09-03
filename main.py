@@ -67,8 +67,10 @@ async def handler(ws):
 
             if kind == "haptic":
                 pattern = int(data.get("pattern", 3))
-                with bridge_lock:
-                    Bridge.call("play_haptic", pattern)
+                # Guarded, so a failed buzz cannot drop the Spectacles
+                # connection. Losing one vibration is nothing; losing the
+                # socket mid-take means reconnecting on camera.
+                bridge_call("play_haptic", pattern)
                 print(f"Haptic pattern {pattern} sent to net")
 
             elif kind == "result":
@@ -131,12 +133,37 @@ def parse_samples(raw):
     return out
 
 
+bridge_errors = 0
+
+
+def bridge_call(name, *args):
+    '''
+    Call the MCU, and never let a failure escape. An exception raised out of
+    the user loop can take the whole Linux side down, which mid-take means
+    the net simply stops existing. A dropped poll is recoverable; a dead
+    process is not.
+    '''
+    global bridge_errors
+    try:
+        with bridge_lock:
+            result = Bridge.call(name, *args)
+        bridge_errors = 0
+        return result
+    except Exception as exc:                      # noqa: BLE001
+        bridge_errors += 1
+        # Only complain occasionally, or a persistent fault floods the console
+        # and hides everything else.
+        if bridge_errors == 1 or bridge_errors % 100 == 0:
+            print("Bridge call %s failed (%d in a row): %s"
+                  % (name, bridge_errors, exc))
+        return None
+
+
 def loop():
     global sample_clock
 
     # ---- 1. Drain the IMU sample buffer and run the predictor ----
-    with bridge_lock:
-        raw = Bridge.call("get_samples")
+    raw = bridge_call("get_samples")
 
     for mag in parse_samples(raw):
         sample_clock += MCU_SAMPLE_INTERVAL
@@ -149,8 +176,7 @@ def loop():
             broadcast(msg)
 
     # ---- 2. Confirmed swings still come from the MCU's own detector ----
-    with bridge_lock:
-        peak = Bridge.call("get_event")
+    peak = bridge_call("get_event")
     if peak and peak > 0:
         print(f"Swing detected, peak {peak:.2f} g")
         broadcast({"type": "swing", "peak": round(float(peak), 2)})

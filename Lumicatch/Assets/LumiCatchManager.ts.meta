@@ -52,13 +52,24 @@
     guaranteeDelayS: false
     guaranteeEasyTarget: false
     heroDistanceCm: false
+    hudArcCm: false
+    hudDistanceCm: false
+    hudMoteBaseCm: false
+    hudMoteCount: false
+    hudMoteLitCm: false
+    hudWidthCm: false
+    hudYCm: false
     internetModule: false
     leashMaxCm: false
     mercyMisses: false
     mercySeconds: false
+    moodHoldS: false
+    moodScale: false
+    moodText: false
     nearbyCooldownS: false
     nearbyRangeCm: false
     pulseAmount: false
+    pulseTravelS: false
     rareChance: false
     rarePrefab: false
     rareScaleMult: false
@@ -69,6 +80,7 @@
     schoolMidCm: false
     schoolNearCm: false
     schoolSpreadCm: false
+    scoreScale: false
     scoreText: false
     separationCm: false
     serverUrl: false
@@ -146,6 +158,18 @@
       spookSeconds: !<float> 5.000000
       curiousMisses: !<float> 2.000000
       curiousSeconds: !<float> 8.000000
+      moodText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      hudDistanceCm: !<float> 100.000000
+      hudWidthCm: !<float> 34.000000
+      hudYCm: !<float> -22.000000
+      hudMoteCount: !<float> 11.000000
+      hudMoteBaseCm: 0.800000
+      hudMoteLitCm: 1.800000
+      hudArcCm: 2.500000
+      pulseTravelS: 0.550000
+      moodHoldS: 2.600000
+      scoreScale: 1.500000
+      moodScale: 0.950000
       useMercy: true
       mercyMisses: !<float> 2.000000
       mercySeconds: !<float> 6.000000
@@ -209,6 +233,18 @@
     - // @input float spookSeconds = 5
     - // @input float curiousMisses = 2
     - // @input float curiousSeconds = 8
+    - // @input Component.Text moodText
+    - // @input float hudDistanceCm = 100
+    - // @input float hudWidthCm = 30
+    - // @input float hudYCm = -20
+    - // @input float hudMoteCount = 11
+    - // @input float hudMoteBaseCm = 2.2
+    - // @input float hudMoteLitCm = 4.5
+    - // @input float hudArcCm = 2.5
+    - // @input float pulseTravelS = 0.7
+    - // @input float moodHoldS = 2.6
+    - // @input float scoreScale = 1.5
+    - // @input float moodScale = 0.95
     - // @input bool useMercy = true
     - // @input float mercyMisses = 2
     - // @input float mercySeconds = 6

@@ -143,6 +143,26 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input curiousMisses: number = 2;
   @input curiousSeconds: number = 8.0;
 
+  // ---- Sense strand (the AI, made visible) ----
+  // The net's own bioluminescence rather than a readout. It takes the same
+  // colours as the creatures so it belongs to the world: cyan when the shoal
+  // is calm, violet when curious, gold when spooked. Its glow extends with
+  // difficulty, and a mote runs along it the instant the board predicts a
+  // swing. Everything is positioned by script, because editor-side transforms
+  // on camera children do not survive a reload.
+  @input('Component.Text') @allowUndefined moodText: Text;
+  @input hudDistanceCm: number = 100;   // sits on the 1 m focus plane
+  @input hudWidthCm: number = 30;
+  @input hudYCm: number = -20;
+  @input hudMoteCount: number = 11;
+  @input hudMoteBaseCm: number = 2.2;
+  @input hudMoteLitCm: number = 4.5;
+  @input hudArcCm: number = 2.5;        // gentle droop, like a resting strand
+  @input pulseTravelS: number = 0.7;
+  @input moodHoldS: number = 2.6;
+  @input scoreScale: number = 1.5;
+  @input moodScale: number = 0.95;
+
   // ---- Demo safeguards ----
   @input useMercy: boolean = true;
   @input mercyMisses: number = 2;
@@ -183,6 +203,16 @@ export class LumiCatchManager extends BaseScriptComponent {
   private diffAlertMult: number = 1.0;
   private diffCloaking: boolean = false;
 
+  // Sense strand runtime state.
+  private motes: SceneObject[] = [];
+  private moteMats: Material[] = [];
+  private pulseT: number = -1;
+  private moodFadeT: number = -1;
+  private moodLabel: string = '';
+  // Stand-in for the board's adaptive model while running in simulate mode,
+  // so the strand is alive in preview instead of sitting dark at zero.
+  private simOutcomes: boolean[] = [];
+
   onAwake() {
     this.createEvent('OnStartEvent').bind(() => this.onStart());
     this.createEvent('UpdateEvent').bind(() => this.onUpdate());
@@ -199,6 +229,10 @@ export class LumiCatchManager extends BaseScriptComponent {
     }
 
     this.initSchools(this.camera.getTransform().getWorldPosition());
+    this.buildHud();
+    const hudReport = this.createEvent('DelayedCallbackEvent');
+    hudReport.bind(() => this.reportHud());
+    hudReport.reset(1.0);
 
     for (let i = 0; i < this.creatureCount; i++) {
       // Force the first one to be a Drifter so there is always an easy
@@ -261,6 +295,7 @@ export class LumiCatchManager extends BaseScriptComponent {
     if (this.elapsed - this.lastSimSwing < 0.4) return;
     this.lastSimSwing = this.elapsed;
     print('LumiCatch: simulated swing');
+    this.fireWave();
     this.onSwing(3.0);
   }
 
@@ -332,6 +367,7 @@ export class LumiCatchManager extends BaseScriptComponent {
         'LumiCatch: swing predicted in ' + data.etaMs +
         ' ms, confidence ' + data.confidence
       );
+      this.onPredicted(data.etaMs || 0);
       return;
     }
 
@@ -356,6 +392,9 @@ export class LumiCatchManager extends BaseScriptComponent {
   /** Tell the board whether that swing landed, so its model can adapt. */
   private sendResult(hit: boolean) {
     if (this.simulate) {
+      // No board attached, so keep a local history for the strand to read.
+      this.simOutcomes.push(hit);
+      if (this.simOutcomes.length > 8) this.simOutcomes.shift();
       print('LumiCatch: [sim] result ' + (hit ? 'hit' : 'miss'));
       return;
     }
@@ -435,6 +474,191 @@ export class LumiCatchManager extends BaseScriptComponent {
     );
   }
 
+  // ---------------- Sense strand ----------------
+  //
+  // A drift of bioluminescent motes low in the view, not a bar. How far the
+  // glow reaches along them is how alert the shoal has become; a bright wave
+  // runs their length the instant a swing is sensed. Built from the creature
+  // prefab itself, so the strand is literally made of the same light as the
+  // jellyfish, and so it needs no scene objects and no Inspector wiring.
+
+  /** The shoal's mood as a colour, borrowed from the creatures themselves. */
+  private moodColour(): vec4 {
+    if (this.mood === MOOD_SPOOKED) return COL_LUMEN;
+    if (this.mood === MOOD_CURIOUS) return COL_SKITTISH;
+    return COL_DRIFTER;
+  }
+
+  private buildHud() {
+    if (!this.creaturePrefab || !this.camera) return;
+    const parent = this.camera.getSceneObject();
+
+    for (let i = 0; i < this.hudMoteCount; i++) {
+      const mote = this.creaturePrefab.instantiate(parent);
+      const visual = this.findVisual(mote);
+      let mat: Material = null;
+      if (visual && visual.mainMaterial) {
+        mat = visual.mainMaterial.clone();
+        // Real transparency rather than fading towards black. Depth writing
+        // off so overlapping motes blend instead of punching holes in
+        // each other.
+        mat.mainPass.blendMode = BlendMode.Normal;
+        mat.mainPass.depthWrite = false;
+        visual.mainMaterial = mat;
+      }
+      this.motes.push(mote);
+      this.moteMats.push(mat);
+    }
+
+    print(
+      'LumiCatch: built ' + this.motes.length + ' sense motes, ' +
+      this.moteMats.filter((m) => m !== null).length + ' with their own material'
+    );
+  }
+
+  /** One-shot report so an invisible strand can be diagnosed from the log. */
+  private reportHud() {
+    if (this.motes.length === 0) {
+      print('LumiCatch: HUD has no motes. creaturePrefab or camera was missing.');
+      return;
+    }
+    const t = this.motes[0].getTransform();
+    const wp = t.getWorldPosition();
+    const ws = t.getWorldScale();
+    const camPos = this.camera.getTransform().getWorldPosition();
+    const toMote = wp.sub(camPos);
+    const ahead = toMote.normalize().dot(this.camForward());
+    print(
+      'LumiCatch: mote 0 world scale ' + ws.x.toFixed(2) +
+      ' cm, ' + toMote.length.toFixed(0) + ' cm away, ' +
+      (ahead > 0 ? 'IN FRONT' : 'BEHIND (flip hudDistanceCm)')
+    );
+  }
+
+  /**
+   * How far the glow reaches, 0 to 1. Off the board when connected; in
+   * simulate mode a local stand-in, so the strand still responds to how you
+   * are playing while there is no hardware attached.
+   */
+  private hudLevel(): number {
+    if (!this.simulate) return this.diffLevel;
+    if (this.simOutcomes.length < 3) return 0.35;
+    let hits = 0;
+    for (let i = 0; i < this.simOutcomes.length; i++) {
+      if (this.simOutcomes[i]) hits++;
+    }
+    return Math.max(0, Math.min(1, hits / this.simOutcomes.length));
+  }
+
+  /** Send a wave down the strand. */
+  private fireWave() {
+    this.pulseT = 0;
+  }
+
+  /** The board has seen a swing coming. */
+  private onPredicted(etaMs: number) {
+    this.fireWave();
+    this.moodLabel = 'sensed  +' + Math.round(etaMs) + 'ms';
+    this.moodFadeT = 0;
+  }
+
+  private updateHud(dt: number) {
+    const n = this.motes.length;
+    if (n === 0) return;
+
+    const col = this.moodColour();
+    const half = this.hudWidthCm * 0.5;
+    const reach = Math.max(0.04, this.hudLevel()) * n;
+
+    // Wave position along the strand, negative when idle.
+    let wave = -1;
+    if (this.pulseT >= 0) {
+      this.pulseT += dt;
+      const p = this.pulseT / this.pulseTravelS;
+      if (p >= 1) this.pulseT = -1;
+      else wave = p * n;
+    }
+
+    for (let i = 0; i < n; i++) {
+      const f = n === 1 ? 0.5 : i / (n - 1);
+      const x = -half + this.hudWidthCm * f;
+
+      // Shallow droop, so it hangs like a strand rather than ruling a line.
+      const across = 2 * f - 1;
+      const droop = -this.hudArcCm * (1 - across * across);
+      const bob = Math.sin(this.elapsed * 1.1 + i * 0.7) * 0.45;
+
+      // Soft edge instead of a hard step, so the glow tapers off.
+      const lit = Math.max(0, Math.min(1, reach - i));
+
+      // The wave flares each mote as it passes.
+      let flare = 0;
+      if (wave >= 0) {
+        const d = Math.abs(wave - i);
+        if (d < 1.8) {
+          const k = 1 - d / 1.8;
+          flare = k * k;
+        }
+      }
+
+      const size =
+        this.hudMoteBaseCm +
+        (this.hudMoteLitCm - this.hudMoteBaseCm) * Math.min(1, lit + flare);
+
+      const t = this.motes[i].getTransform();
+      t.setLocalPosition(
+        new vec3(x, this.hudYCm + droop + bob, -this.hudDistanceCm)
+      );
+      t.setLocalScale(new vec3(size, size, size));
+
+      const mat = this.moteMats[i];
+      if (mat) {
+        const toWhite = Math.min(1, flare * 1.3);
+        mat.mainPass.baseColor = new vec4(
+          col.r + (1 - col.r) * toWhite,
+          col.g + (1 - col.g) * toWhite,
+          col.b + (1 - col.b) * toWhite,
+          Math.min(1, 0.28 + 0.62 * lit + 0.8 * flare)
+        );
+      }
+    }
+
+    // A whisper under the strand, only when something changed, fading out so
+    // the view stays clear for the creatures.
+    if (this.moodText) {
+      const mt = this.moodText.getSceneObject().getTransform();
+      mt.setLocalPosition(
+        new vec3(0, this.hudYCm - this.hudArcCm - 7, -this.hudDistanceCm)
+      );
+      mt.setLocalScale(
+        new vec3(this.moodScale, this.moodScale, this.moodScale)
+      );
+
+      let k = 0;
+      if (this.moodFadeT >= 0) {
+        this.moodFadeT += dt;
+        if (this.moodFadeT >= this.moodHoldS) {
+          this.moodFadeT = -1;
+        } else {
+          const p = this.moodFadeT / this.moodHoldS;
+          k = p < 0.12 ? p / 0.12 : 1 - (p - 0.12) / 0.88;
+        }
+      }
+      this.moodText.text = this.moodLabel;
+      this.moodText.textFill.color = new vec4(col.r, col.g, col.b, k);
+    }
+
+    // Score sits above the strand, script owned like everything else.
+    if (this.scoreText) {
+      const st = this.scoreText.getSceneObject().getTransform();
+      st.setLocalPosition(new vec3(0, this.hudYCm + 11, -this.hudDistanceCm));
+      st.setLocalScale(
+        new vec3(this.scoreScale, this.scoreScale, this.scoreScale)
+      );
+    }
+  }
+
+
   // ---------------- Schools and mood ----------------
 
   /**
@@ -511,13 +735,17 @@ export class LumiCatchManager extends BaseScriptComponent {
 
     if (m === MOOD_SPOOKED) {
       this.moodUntil = this.elapsed + this.spookSeconds;
+      this.moodLabel = 'the shoal scatters';
       print('LumiCatch: spooked, the schools are grouping tight and backing off');
     } else if (m === MOOD_CURIOUS) {
       this.moodUntil = this.elapsed + this.curiousSeconds;
+      this.moodLabel = 'they drift closer';
       print('LumiCatch: curious, the schools are dispersing and coming closer');
     } else {
+      this.moodLabel = 'the water settles';
       print('LumiCatch: the schools have settled');
     }
+    this.moodFadeT = 0;
 
     this.rehomeForMood(camPos);
   }
@@ -687,6 +915,7 @@ export class LumiCatchManager extends BaseScriptComponent {
     const worldUp = new vec3(0, 1, 0);
 
     this.updateCloaking();
+    this.updateHud(dt);
 
     // Moods are timed, and lapse back to calm on their own.
     if (this.mood !== MOOD_CALM && this.elapsed > this.moodUntil) {
