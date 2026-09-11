@@ -54,7 +54,8 @@ print('=== TrajectoryPredictor ===')
 
 # --- fires once, early, with a sensible forecast ---
 pred = TrajectoryPredictor(horizon_ms=100.0)
-trace = swing_trace(peak_g=3.0, rise_s=0.18)
+# Mounted-net profile: rest near 0.9 g, a real swing peaks above 4.
+trace = swing_trace(peak_g=5.0, rise_s=0.18, rest_g=0.9)
 true_peak_t = trace[len(trace) // 2][0]
 true_peak_g = max(m for _, m in trace)
 
@@ -87,21 +88,21 @@ if fired:
 
 # --- does not fire on a still net ---
 pred2 = TrajectoryPredictor()
-quiet = [pred2.update(t, m) for t, m in idle_trace(1.0)]
+quiet = [pred2.update(t, m) for t, m in idle_trace(1.0, rest_g=0.9)]
 check('silent when the net is still', not any(quiet))
 
-# --- real measured walking must not trigger a swing ---
-# Profile taken from the actual net IMU while walking about holding it:
-# magnitude swings between 0.65 and 1.08 g at roughly a 2 Hz stride, which
-# works out at about 2.7 g/s of slope. This is the trace that matters, since
-# a false swing while walking to your mark ruins a take.
+# --- walking, measured on the ASSEMBLED net ---
+# Mounting the electronics on the handle tripled this: walking now reads 2.0
+# to 3.0 g, because mass on a lever amplifies every footfall. This is the
+# trace that matters, since a false swing while walking to your mark ruins a
+# take, and it is why the arm threshold had to move from 1.6 to 3.0.
 pred3 = TrajectoryPredictor()
 walk = []
 for i in range(1200):
     t = i * DT
-    mag = 0.865 + 0.215 * math.sin(2.0 * math.pi * 2.0 * t)
+    mag = 2.5 + 0.5 * math.sin(2.0 * math.pi * 2.0 * t)
     walk.append(pred3.update(t, mag))
-check('ignores real measured walking (0.65-1.08 g)', not any(walk),
+check('ignores walking on the mounted net (2.0-3.0 g)', not any(walk),
       '(fired %d times)' % sum(1 for w in walk if w))
 
 # --- and a brisk, jostling carry, worst case ---
@@ -109,9 +110,9 @@ pred3b = TrajectoryPredictor()
 jostle = []
 for i in range(1200):
     t = i * DT
-    mag = (0.9
-           + 0.3 * math.sin(2.0 * math.pi * 2.5 * t)
-           + 0.15 * math.sin(2.0 * math.pi * 6.0 * t))
+    mag = (2.6
+           + 0.4 * math.sin(2.0 * math.pi * 2.5 * t)
+           + 0.2 * math.sin(2.0 * math.pi * 6.0 * t))
     jostle.append(pred3b.update(t, mag))
 check('ignores brisk jostling carry', not any(jostle),
       '(fired %d times)' % sum(1 for j in jostle if j))
@@ -121,11 +122,11 @@ pred4 = TrajectoryPredictor()
 count = 0
 t0 = 0.0
 for swing in range(3):
-    for t, mag in swing_trace(peak_g=2.8, rise_s=0.18, start_t=t0):
+    for t, mag in swing_trace(peak_g=5.0, rise_s=0.18, start_t=t0, rest_g=0.9):
         if pred4.update(t, mag):
             count += 1
     t0 += 0.36
-    for t, mag in idle_trace(0.3, start_t=t0):
+    for t, mag in idle_trace(0.3, start_t=t0, rest_g=0.9):
         pred4.update(t, mag)
     t0 += 0.3
 check('re-arms between swings', count == 3, '(caught %d of 3)' % count)
@@ -155,7 +156,7 @@ if real_fired:
 
 # --- a harder, faster swing should still be caught ---
 pred5 = TrajectoryPredictor()
-hard = [p for t, m in swing_trace(peak_g=5.0, rise_s=0.10)
+hard = [p for t, m in swing_trace(peak_g=7.0, rise_s=0.10, rest_g=0.9)
         for p in [pred5.update(t, m)] if p]
 check('catches a fast hard swing', len(hard) == 1,
       '(fired %d times)' % len(hard))

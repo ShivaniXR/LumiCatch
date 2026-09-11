@@ -33,6 +33,7 @@ import threading
 import time
 
 from neon_ai import AdaptiveDifficulty, TrajectoryPredictor
+from dashboard import start_dashboard
 
 HOST = '0.0.0.0'
 PORT = 8765
@@ -56,6 +57,32 @@ clients_lock = threading.Lock()
 # pushed through the predictor exactly as the board would.
 dda = AdaptiveDifficulty()
 predictor = TrajectoryPredictor()
+
+# Mirrors the shape main.py reports, so the same dashboard runs against the
+# mock. Handy for filming the dashboard if the board is being difficult.
+started_at = time.time()
+mock_stats = {"swings": 0, "hits": 0, "predictions": 0,
+              "eta": 0.0, "conf": 0.0, "mood": "calm"}
+
+
+def dashboard_state():
+    with clients_lock:
+        addrs = [str(i + 1) for i in range(len(clients))]
+    return {
+        "sessions": [{
+            "id": i + 1, "address": "mock-lens",
+            "swings": mock_stats["swings"], "hits": mock_stats["hits"],
+            "catch_ratio": (mock_stats["hits"] / mock_stats["swings"])
+                           if mock_stats["swings"] else 0.0,
+            "difficulty": dda.level(), "mood": mock_stats["mood"],
+        } for i, _ in enumerate(addrs)],
+        "total_swings": mock_stats["swings"],
+        "total_hits": mock_stats["hits"],
+        "predictions": mock_stats["predictions"],
+        "last_eta_ms": mock_stats["eta"],
+        "last_confidence": mock_stats["conf"],
+        "uptime_s": time.time() - started_at,
+    }
 
 
 def build_handshake(request: str) -> str:
@@ -194,6 +221,11 @@ def handle_client(conn: socket.socket, addr):
             elif kind == 'result':
                 # Feed the adaptive model, then push the new difficulty back.
                 hit = bool(data.get('hit'))
+                mock_stats["swings"] += 1
+                if hit:
+                    mock_stats["hits"] += 1
+                if isinstance(data.get('mood'), str):
+                    mock_stats["mood"] = data['mood']
                 dda.record_result(hit)
                 params = dda.params()
                 print('  <- result %s   ratio %.2f, difficulty %.2f'
@@ -247,6 +279,9 @@ def emit_swing(peak: float):
         p = predictor.update(t, mag)
         if p and fired_at is None:
             fired_at = t
+            mock_stats["predictions"] += 1
+            mock_stats["eta"] = p.eta_ms
+            mock_stats["conf"] = p.confidence
             msg = {'type': 'predict'}
             msg.update(p.as_dict())
             print('  -> predict, peak in %.0f ms (confidence %.2f)'
@@ -296,6 +331,7 @@ def main():
     print('Enter = swing, a number = swing with that peak, q = quit')
 
     threading.Thread(target=accept_loop, args=(server,), daemon=True).start()
+    start_dashboard(dashboard_state)
 
     try:
         for line in sys.stdin:

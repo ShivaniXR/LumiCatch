@@ -1,35 +1,22 @@
-# Neon-Net - Linux side (Arduino UNO Q, Qualcomm/Debian side)
-# ------------------------------------------------------------
-# This is the Kinetic Engine's brain. It runs inside App Lab on the Qualcomm
-# side and does three jobs:
+# Neon-Net - Linux side, NO DEPENDENCIES build
+# ---------------------------------------------
+# Identical behaviour to main.py, but the WebSocket server is raw sockets from
+# the standard library instead of the `websockets` package. Use this when
+# App Lab will not install dependencies into the app container.
 #
-#   1. Pulls the IMU sample stream off the STM32 over the Bridge.
-#   2. Runs both AI models from neon_ai.py:
-#        - TrajectoryPredictor, forecasting a swing's peak up to 100 ms early
-#          so the Spectacles can be warned before the net actually arrives.
-#        - AdaptiveDifficulty, watching the catch-to-swing ratio and steering
-#          creature behaviour to hold the player in flow.
-#   3. Serves a local WebSocket on port 8765 for the Spectacles.
+# The frame layer here is the same code proven end to end in mock-net.py:
+# handshake, masked inbound frames, unmasked outbound frames.
 #
-# Nothing leaves the local network. All inference is on the edge.
-#
-# One-time setup (App Lab console / SSH):
-#   sudo apt install python3-websockets
-#
-# Protocol (JSON text frames):
-#   Net -> Lens : {"type": "predict", "etaMs": 84, "predictedPeak": 3.4,
-#                  "confidence": 0.62}
-#   Net -> Lens : {"type": "swing", "peak": 2.7}
-#   Net -> Lens : {"type": "difficulty", "level": 0.6, "speedMult": 1.48, ...}
-#   Lens -> Net : {"type": "haptic", "pattern": 3}
-#   Lens -> Net : {"type": "result", "hit": true}
+# Nothing to install. Nothing to fail on the day.
 
-import asyncio
 import json
 import threading
 import time
+import socket
+import struct
+import base64
+import hashlib
 
-import websockets
 from arduino.app_utils import *
 
 from neon_ai import AdaptiveDifficulty, TrajectoryPredictor
@@ -40,7 +27,6 @@ POLL_INTERVAL = 0.03          # seconds, ~30 Hz
 MCU_SAMPLE_INTERVAL = 0.005   # the sketch samples at ~200 Hz
 
 clients = set()
-ws_loop = None
 bridge_lock = threading.Lock()
 
 # ---- Multiplayer sessions -------------------------------------------------
@@ -104,90 +90,218 @@ predictor = TrajectoryPredictor(horizon_ms=100.0)
 sample_clock = 0.0
 
 
-async def handler(ws):
-    global next_session_id
+WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
+HAPTIC_NAMES = {
+    1: 'nearby',
+    2: 'rare',
+    3: 'capture',
+    4: 'combo'
+}
+
+def build_handshake(request: str) -> str:
+    '''Compute the Sec-WebSocket-Accept response for a client handshake.'''
+    key = None
+    for line in request.split('\r\n'):
+        if line.lower().startswith('sec-websocket-key:'):
+            key = line.split(':', 1)[1].strip()
+            break
+    if key is None:
+        return None
+
+    digest = hashlib.sha1((key + WS_GUID).encode()).digest()
+    accept = base64.b64encode(digest).decode()
+    return (
+        'HTTP/1.1 101 Switching Protocols\r\n'
+        'Upgrade: websocket\r\n'
+        'Connection: Upgrade\r\n'
+        'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n'
+    )
+
+
+def encode_frame(payload: str) -> bytes:
+    '''Encode a single unfragmented text frame. Server frames are never masked.'''
+    data = payload.encode('utf-8')
+    header = bytearray()
+    header.append(0x81)  # FIN set, opcode 1 (text)
+
+    length = len(data)
+    if length < 126:
+        header.append(length)
+    elif length < (1 << 16):
+        header.append(126)
+        header.extend(struct.pack('>H', length))
+    else:
+        header.append(127)
+        header.extend(struct.pack('>Q', length))
+
+    return bytes(header) + data
+
+
+def recv_exactly(conn: socket.socket, count: int) -> bytes:
+    '''Read exactly count bytes, or return None if the peer went away.'''
+    buf = b''
+    while len(buf) < count:
+        chunk = conn.recv(count - len(buf))
+        if not chunk:
+            return None
+        buf += chunk
+    return buf
+
+
+def read_frame(conn: socket.socket):
+    '''
+    Read one frame. Returns (opcode, payload_bytes) or None on close.
+    Client frames are always masked, so the mask is applied on the way in.
+    '''
+    head = recv_exactly(conn, 2)
+    if head is None:
+        return None
+
+    opcode = head[0] & 0x0F
+    masked = (head[1] & 0x80) != 0
+    length = head[1] & 0x7F
+
+    if length == 126:
+        ext = recv_exactly(conn, 2)
+        if ext is None:
+            return None
+        length = struct.unpack('>H', ext)[0]
+    elif length == 127:
+        ext = recv_exactly(conn, 8)
+        if ext is None:
+            return None
+        length = struct.unpack('>Q', ext)[0]
+
+    mask_key = b''
+    if masked:
+        mask_key = recv_exactly(conn, 4)
+        if mask_key is None:
+            return None
+
+    payload = recv_exactly(conn, length) if length else b''
+    if payload is None:
+        return None
+
+    if masked:
+        payload = bytes(payload[i] ^ mask_key[i % 4] for i in range(len(payload)))
+
+    return opcode, payload
+
+
+
+def _send_text(conn, payload: str):
+    data = payload.encode('utf-8')
+    hdr = bytearray([0x81])
+    n = len(data)
+    if n < 126:
+        hdr.append(n)
+    elif n < (1 << 16):
+        hdr.append(126)
+        hdr.extend(struct.pack('>H', n))
+    else:
+        hdr.append(127)
+        hdr.extend(struct.pack('>Q', n))
+    conn.sendall(bytes(hdr) + data)
+
+
+def handle_client(conn, addr):
+    global next_session_id
     with sessions_lock:
         sid = next_session_id
         next_session_id += 1
-        addr = ws.remote_address[0] if ws.remote_address else "unknown"
-        session = Session(sid, addr)
-        sessions[ws] = session
-
-    clients.add(ws)
-    print(f"Player {sid} joined from {addr}")
+        session = Session(sid, addr[0])
+        sessions[conn] = session
+    clients.add(conn)
+    print(f"Player {sid} joined from {addr[0]}")
 
     try:
-        # Each player starts in sync with their own difficulty model.
-        await ws.send(json.dumps(session.dda.params()))
+        request = conn.recv(4096).decode('utf-8', errors='ignore')
+        response = build_handshake(request)
+        if response is None:
+            conn.close()
+            return
+        conn.sendall(response.encode())
+        _send_text(conn, json.dumps(session.dda.params()))
 
-        async for msg in ws:
+        while True:
+            frame = read_frame(conn)
+            if frame is None:
+                break
+            opcode, payload = frame
+            if opcode == 0x8:
+                break
+            if opcode == 0x9:
+                conn.sendall(b'\x8a\x00')
+                continue
+            if opcode != 0x1:
+                continue
             try:
-                data = json.loads(msg)
-            except (ValueError, TypeError):
+                data = json.loads(payload.decode('utf-8'))
+            except (ValueError, UnicodeDecodeError):
                 continue
 
             kind = data.get("type")
-
             if kind == "haptic":
                 pattern = int(data.get("pattern", 3))
-                # Guarded, so a failed buzz cannot drop the Spectacles
-                # connection. Losing one vibration is nothing; losing the
-                # socket mid-take means reconnecting on camera.
                 bridge_call("play_haptic", pattern)
                 print(f"Player {sid}: haptic {pattern}")
-
             elif kind == "result":
-                # Difficulty adapts per player, not across everyone, so one
-                # skilled player cannot make the game hard for a beginner.
                 hit = bool(data.get("hit"))
                 session.swings += 1
                 if hit:
                     session.hits += 1
                 if isinstance(data.get("mood"), str):
                     session.mood = data["mood"]
-
                 session.dda.record_result(hit)
                 params = session.dda.params()
                 print("Player %d %s | ratio %.2f | difficulty %.2f"
                       % (sid, "HIT " if hit else "miss",
                          params["catchRatio"], params["level"]))
-                await ws.send(json.dumps(params))
-
-    except websockets.ConnectionClosed:
+                _send_text(conn, json.dumps(params))
+    except (OSError, ConnectionResetError, BrokenPipeError):
         pass
     finally:
-        clients.discard(ws)
+        clients.discard(conn)
         with sessions_lock:
-            sessions.pop(ws, None)
+            sessions.pop(conn, None)
+        try:
+            conn.close()
+        except OSError:
+            pass
         print(f"Player {sid} left")
 
 
-async def ws_main():
-    global ws_loop
-    ws_loop = asyncio.get_running_loop()
-    async with websockets.serve(handler, "0.0.0.0", WS_PORT):
-        print(f"WebSocket server listening on port {WS_PORT}")
-        await asyncio.Future()  # run forever
+def _accept_loop(server):
+    while True:
+        try:
+            conn, addr = server.accept()
+        except OSError:
+            return
+        threading.Thread(target=handle_client, args=(conn, addr),
+                         daemon=True).start()
 
 
-def start_ws_thread():
-    asyncio.run(ws_main())
+def start_ws_server():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("0.0.0.0", WS_PORT))
+    server.listen(8)
+    print(f"WebSocket server listening on port {WS_PORT}")
+    threading.Thread(target=_accept_loop, args=(server,), daemon=True).start()
 
 
-threading.Thread(target=start_ws_thread, daemon=True).start()
-
-# App Lab hosts the game dashboard: session list, per player difficulty and
-# live model output, on port 8080.
+start_ws_server()
 start_dashboard(dashboard_state)
 
 
 def broadcast(obj):
-    if ws_loop is None:
-        return
     msg = json.dumps(obj)
-    for ws in list(clients):
-        asyncio.run_coroutine_threadsafe(ws.send(msg), ws_loop)
+    for conn in list(clients):
+        try:
+            _send_text(conn, msg)
+        except OSError:
+            pass
 
 
 def parse_samples(raw):

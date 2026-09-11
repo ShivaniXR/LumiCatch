@@ -29,11 +29,16 @@
     alertHoldS: false
     alertRangeCm: false
     ambientSound: false
+    ambientTrack: false
+    ambientVolume: false
+    attractDim: false
     burstPrefab: false
     camera: false
     captureConeDot: false
     captureRangeCm: false
     captureSound: false
+    captureTrack: false
+    captureVolume: false
     cohesionCalm: false
     cohesionCurious: false
     cohesionSpooked: false
@@ -68,11 +73,15 @@
     moodText: false
     nearbyCooldownS: false
     nearbyRangeCm: false
+    pinchAsSwing: false
+    plateMargin: false
+    plateRadius: false
     pulseAmount: false
     pulseTravelS: false
     rareChance: false
     rarePrefab: false
     rareScaleMult: false
+    requireStart: false
     returnSpeedCm: false
     schoolCount: false
     schoolDriftRate: false
@@ -95,6 +104,13 @@
     spookCatches: false
     spookSeconds: false
     spookWindowS: false
+    startButton: false
+    startButtonLabel: false
+    startButtonText: false
+    startStatusText: false
+    startTitle: false
+    startTitleLabel: false
+    startTitleText: false
     useMercy: false
     usePinchToSwing: false
   ScriptTypesHidden:
@@ -115,9 +131,14 @@
       scoreText: !<reference.Text> 00000000-0000-0000-0000-000000000000
       captureSound: !<reference.AudioComponent> 00000000-0000-0000-0000-000000000000
       ambientSound: !<reference.AudioComponent> 00000000-0000-0000-0000-000000000000
+      captureTrack: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      ambientTrack: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      captureVolume: !<float> 1.000000
+      ambientVolume: 0.400000
       serverUrl: "ws://192.168.1.50:8765"
       simulate: true
       usePinchToSwing: true
+      pinchAsSwing: false
       creatureCount: !<float> 5.000000
       spawnAllAround: true
       separationCm: !<float> 35.000000
@@ -170,6 +191,17 @@
       moodHoldS: 2.600000
       scoreScale: 1.500000
       moodScale: 0.950000
+      requireStart: true
+      startTitle: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      startTitleText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      startStatusText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      startButton: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      startButtonText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      startTitleLabel: NEON-NET
+      startButtonLabel: BEGIN
+      attractDim: 0.300000
+      plateRadius: 2.200000
+      plateMargin: 2.400000
       useMercy: true
       mercyMisses: !<float> 2.000000
       mercySeconds: !<float> 6.000000
@@ -190,9 +222,14 @@
     - // @input Component.Text scoreText
     - // @input Component.AudioComponent captureSound
     - // @input Component.AudioComponent ambientSound
+    - // @input Asset.AudioTrackAsset captureTrack
+    - // @input Asset.AudioTrackAsset ambientTrack
+    - // @input float captureVolume = 1
+    - // @input float ambientVolume = 0.4
     - '// @input string serverUrl = "ws://192.168.1.50:8765"'
     - // @input bool simulate = true
     - // @input bool usePinchToSwing = true
+    - // @input bool pinchAsSwing
     - // @input float creatureCount = 14
     - // @input bool spawnAllAround = true
     - // @input float separationCm = 35
@@ -245,6 +282,17 @@
     - // @input float moodHoldS = 2.6
     - // @input float scoreScale = 1.5
     - // @input float moodScale = 0.95
+    - // @input bool requireStart = true
+    - // @input SceneObject startTitle
+    - // @input Component.Text startTitleText
+    - // @input Component.Text startStatusText
+    - // @input SceneObject startButton
+    - // @input Component.Text startButtonText
+    - '// @input string startTitleLabel = "NEON-NET"'
+    - '// @input string startButtonLabel = "BEGIN"'
+    - // @input float attractDim = 0.45
+    - // @input float plateRadius = 2.2
+    - // @input float plateMargin = 2.4
     - // @input bool useMercy = true
     - // @input float mercyMisses = 2
     - // @input float mercySeconds = 6

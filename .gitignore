@@ -1,0 +1,11 @@
+# Lens Studio regenerates this, 115 MB of it
+Lumicatch/Cache/
+Lumicatch/Workspaces/
+Lumicatch/PluginsUserPreferences/
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store

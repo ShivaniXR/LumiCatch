@@ -34,6 +34,7 @@
  */
 
 import { SIK } from 'SpectaclesInteractionKit.lspkg/SIK';
+import { Interactable } from 'SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable';
 
 // Creature kinds
 const KIND_DRIFTER = 0;
@@ -87,9 +88,24 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input('Component.AudioComponent') @allowUndefined captureSound: AudioComponent;
   @input('Component.AudioComponent') @allowUndefined ambientSound: AudioComponent;
 
+  // The AudioComponent's track cannot be assigned from the editor API, so the
+  // tracks come in as assets and the script wires them up at start. Same
+  // reason the material colours are applied in code.
+  @input('Asset.AudioTrackAsset') @allowUndefined captureTrack: AudioTrackAsset;
+  @input('Asset.AudioTrackAsset') @allowUndefined ambientTrack: AudioTrackAsset;
+  @input captureVolume: number = 1.0;
+  @input ambientVolume: number = 0.4;
+
   @input serverUrl: string = 'ws://192.168.1.50:8765';
   @input simulate: boolean = true;
   @input usePinchToSwing: boolean = true;
+
+  // Fallback for a dead net IMU. With this on, a pinch fires a swing even
+  // while connected to the net, so the game stays fully playable: the net
+  // still buzzes on capture, the board still runs its difficulty model, and
+  // the dashboard still shows live sessions. Only the trajectory predictor
+  // is lost, because that is the one thing that genuinely needs the IMU.
+  @input pinchAsSwing: boolean = false;
 
   // ---- Spawning ----
   @input creatureCount: number = 14;
@@ -163,6 +179,22 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input scoreScale: number = 1.5;
   @input moodScale: number = 0.95;
 
+  // ---- Start screen ----
+  // An attract state: creatures drift dimmed behind a title and a button until
+  // the player begins. It exists as much for filming as for the player, since
+  // it lets every take start clean instead of mid-flight.
+  @input requireStart: boolean = true;
+  @input('SceneObject') @allowUndefined startTitle: SceneObject;
+  @input('Component.Text') @allowUndefined startTitleText: Text;
+  @input('Component.Text') @allowUndefined startStatusText: Text;
+  @input('SceneObject') @allowUndefined startButton: SceneObject;
+  @input('Component.Text') @allowUndefined startButtonText: Text;
+  @input startTitleLabel: string = 'NEON-NET';
+  @input startButtonLabel: string = 'BEGIN';
+  @input attractDim: number = 0.45;     // creature brightness before starting
+  @input plateRadius: number = 2.2;     // corner rounding on title and button
+  @input plateMargin: number = 2.4;
+
   // ---- Demo safeguards ----
   @input useMercy: boolean = true;
   @input mercyMisses: number = 2;
@@ -212,6 +244,9 @@ export class LumiCatchManager extends BaseScriptComponent {
   // Stand-in for the board's adaptive model while running in simulate mode,
   // so the strand is alive in preview instead of sitting dark at zero.
   private simOutcomes: boolean[] = [];
+  private started: boolean = false;
+  private pressT: number = -1;          // button press animation, seconds
+  private startMats: Material[] = [null, null];   // button body, title
 
   onAwake() {
     this.createEvent('OnStartEvent').bind(() => this.onStart());
@@ -230,6 +265,7 @@ export class LumiCatchManager extends BaseScriptComponent {
 
     this.initSchools(this.camera.getTransform().getWorldPosition());
     this.buildHud();
+    this.bindStartButton();
     const hudReport = this.createEvent('DelayedCallbackEvent');
     hudReport.bind(() => this.reportHud());
     hudReport.reset(1.0);
@@ -269,14 +305,43 @@ export class LumiCatchManager extends BaseScriptComponent {
       ' creatures spawned in front. If this is 0, flip forwardSign.'
     );
 
-    if (this.ambientSound) {
-      this.ambientSound.play(-1); // -1 = loop forever
-    }
+    this.setupAudio();
 
     if (this.simulate) {
       print('LumiCatch: SIMULATE mode. Click in preview or pinch on device. No hardware needed.');
     } else {
       this.connect();
+    }
+  }
+
+  /**
+   * Attach the tracks and start the bed. The capture chime is spatialised, so
+   * it plays from wherever the creature was rather than flatly in your head:
+   * catch one on your left and you hear it on your left. That is the '3D
+   * spatial audio' the design calls for, not a stereo sound effect.
+   */
+  private setupAudio() {
+    if (this.captureSound) {
+      if (this.captureTrack) this.captureSound.audioTrack = this.captureTrack;
+      this.captureSound.volume = this.captureVolume;
+      try {
+        this.captureSound.spatialAudio.enabled = true;
+      } catch (e) {
+        print('LumiCatch: spatial audio unavailable, chime will play flat');
+      }
+    }
+
+    if (this.ambientSound) {
+      if (this.ambientTrack) this.ambientSound.audioTrack = this.ambientTrack;
+      this.ambientSound.volume = this.ambientVolume;
+      // The bed is deliberately NOT spatialised. It is the sea around you,
+      // not an object in it, so it should not swing about as you turn.
+      try {
+        this.ambientSound.spatialAudio.enabled = false;
+      } catch (e) {
+        // older runtimes may not expose it, harmless
+      }
+      this.ambientSound.play(-1);   // -1 = loop forever
     }
   }
 
@@ -289,12 +354,22 @@ export class LumiCatchManager extends BaseScriptComponent {
   }
 
   private simulatedSwing() {
-    if (!this.simulate) return;
+    // While the start screen is up, swings do nothing. Starting requires
+    // actually hitting the button, via the Interactable below.
+    if (this.requireStart && !this.started) return;
+
+    // Normally only in simulate mode, but pinchAsSwing keeps it live while
+    // connected, which is what rescues a demo with a broken sensor.
+    if (!this.simulate && !this.pinchAsSwing) return;
     // Click and pinch can both fire on the same gesture, so debounce to
     // roughly match the firmware's DEBOUNCE_MS.
     if (this.elapsed - this.lastSimSwing < 0.4) return;
     this.lastSimSwing = this.elapsed;
-    print('LumiCatch: simulated swing');
+    print(
+      this.simulate
+        ? 'LumiCatch: simulated swing'
+        : 'LumiCatch: pinch swing (IMU bypassed)'
+    );
     this.fireWave();
     this.onSwing(3.0);
   }
@@ -399,7 +474,17 @@ export class LumiCatchManager extends BaseScriptComponent {
       return;
     }
     if (this.connected && this.socket) {
-      this.socket.send(JSON.stringify({ type: 'result', hit: hit }));
+      // Mood rides along so the App Lab dashboard can show the real shoal
+      // state per player rather than guessing it from the difficulty number.
+      const mood =
+        this.mood === MOOD_SPOOKED
+          ? 'spooked'
+          : this.mood === MOOD_CURIOUS
+          ? 'curious'
+          : 'calm';
+      this.socket.send(
+        JSON.stringify({ type: 'result', hit: hit, mood: mood })
+      );
     }
   }
 
@@ -456,14 +541,29 @@ export class LumiCatchManager extends BaseScriptComponent {
    * pulses together and it reads as deliberate camouflage.
    */
   private updateCloaking() {
+    // Before the game begins the whole shoal is dimmed, so the start screen
+    // reads clearly against them and the moment of starting has some lift.
+    const attract =
+      this.requireStart && !this.started ? this.attractDim : 1.0;
+
+    for (let i = 0; i < this.kindMaterials.length; i++) {
+      if (i === KIND_LUMEN) continue;    // handled below, it also cloaks
+      const m = this.kindMaterials[i];
+      if (!m) continue;
+      const base = i === KIND_SKITTISH ? COL_SKITTISH : COL_DRIFTER;
+      m.mainPass.baseColor = new vec4(
+        base.r * attract, base.g * attract, base.b * attract, base.a
+      );
+    }
+
     const mat = this.kindMaterials[KIND_LUMEN];
     if (!mat) return;
 
-    let k = 1.0;
+    let k = attract;
     if (this.diffCloaking) {
       // Dip to roughly 15 per cent brightness and back, about once a second.
       const wave = 0.5 * (1 + Math.sin(this.elapsed * 2.1));
-      k = 0.15 + 0.85 * wave * wave;
+      k = (0.15 + 0.85 * wave * wave) * attract;
     }
 
     mat.mainPass.baseColor = new vec4(
@@ -472,6 +572,160 @@ export class LumiCatchManager extends BaseScriptComponent {
       COL_LUMEN.b * k,
       COL_LUMEN.a
     );
+  }
+
+  // ---------------- Start screen ----------------
+
+  /**
+   * Subscribe to the button's Interactable. This is real SIK hit targeting:
+   * the button carries a collider and an Interactable, and onTriggerEnd only
+   * fires when an interactor actually resolved to this object. Pinching at
+   * thin air does nothing.
+   */
+  private bindStartButton() {
+    if (!this.startButton) return;
+    const it = this.startButton.getComponent(Interactable.getTypeName());
+    if (!it) {
+      print('LumiCatch: StartButton has no Interactable, cannot be pressed');
+      return;
+    }
+    it.onTriggerEnd.add(() => {
+      if (!this.started) {
+        this.pressT = 0;
+        this.beginGame();
+      }
+    });
+    print('LumiCatch: start button armed');
+  }
+
+  private beginGame() {
+    this.started = true;
+    this.score = 0;
+    this.updateScore(0);
+    this.simOutcomes = [];
+
+    // Everything the start screen was holding back now comes up: the shoal
+    // returns to full brightness, the strand lights, the score appears and
+    // swings start counting. updateStartScreen hides the panel on this frame.
+    this.moodLabel = 'they drift all around you';
+    this.moodFadeT = 0;
+
+    print(
+      'LumiCatch: game started, ' + this.creatures.length +
+      ' creatures live, strand and score on'
+    );
+  }
+
+  /** Show the connection state on the start screen, where eyes already are. */
+  private startStatusLine(): string {
+    if (this.simulate) return 'practice mode';
+    return this.connected ? 'net connected' : 'looking for the net...';
+  }
+
+  /**
+   * Give a Text component a rounded background plate. Lens Studio's Text has
+   * a built in background with a corner radius, which is a far better way to
+   * get rounded edges than trying to build them from a box mesh.
+   */
+  private plate(t: Text, col: vec4, alpha: number, radius: number, margin: number) {
+    const bg = t.backgroundSettings;
+    bg.enabled = true;
+    bg.cornerRadius = radius;
+    bg.margins.left = margin;
+    bg.margins.right = margin;
+    bg.margins.top = margin * 0.6;
+    bg.margins.bottom = margin * 0.6;
+    bg.fill.color = new vec4(col.r, col.g, col.b, alpha);
+  }
+
+  private updateStartScreen(dt: number) {
+    const showing = this.requireStart && !this.started;
+
+    // Title
+    if (this.startTitle) this.startTitle.enabled = showing;
+    if (this.startTitleText && showing) {
+      const t = this.startTitleText.getSceneObject().getTransform();
+      t.setLocalPosition(new vec3(0, 16, -this.hudDistanceCm));
+      t.setLocalScale(new vec3(1.9, 1.9, 1.9));
+      this.startTitleText.text = this.startTitleLabel;
+      this.startTitleText.textFill.color = new vec4(
+        COL_DRIFTER.r, COL_DRIFTER.g, COL_DRIFTER.b, 1
+      );
+      // Dark rounded backplate, so the title reads against drifting creatures.
+      this.plate(
+        this.startTitleText,
+        new vec4(0.02, 0.07, 0.10, 1),
+        0.72,
+        this.plateRadius,
+        this.plateMargin
+      );
+    }
+
+    // Status
+    if (this.startStatusText) {
+      this.startStatusText.getSceneObject().enabled = showing;
+      if (showing) {
+        const t = this.startStatusText.getSceneObject().getTransform();
+        t.setLocalPosition(new vec3(0, -14, -this.hudDistanceCm));
+        t.setLocalScale(new vec3(0.75, 0.75, 0.75));
+        this.startStatusText.text = this.startStatusLine();
+        const ok = this.simulate || this.connected;
+        const c = ok ? COL_DRIFTER : COL_LUMEN;
+        // A slow pulse while searching, steady once connected.
+        const k = ok ? 1.0 : 0.55 + 0.45 * Math.sin(this.elapsed * 3.0);
+        this.startStatusText.textFill.color = new vec4(c.r, c.g, c.b, k);
+      }
+    }
+
+    // Button
+    if (this.startButton) {
+      this.startButton.enabled = showing;
+      if (showing) {
+        let press = 0;
+        if (this.pressT >= 0) {
+          this.pressT += dt;
+          if (this.pressT > 0.25) this.pressT = -1;
+          else press = 1 - this.pressT / 0.25;
+        }
+        const t = this.startButton.getTransform();
+        const w = 20 - press * 2.5;   // squashes in when pressed
+        t.setLocalPosition(new vec3(0, 2, -this.hudDistanceCm));
+        t.setLocalScale(new vec3(w, 7 - press * 0.8, 1.2));
+        t.setLocalRotation(quat.quatIdentity());
+
+        // The box mesh is the hit volume only. What you see is the label's
+        // rounded plate, because a box cannot have rounded corners.
+        const visual = this.findVisual(this.startButton);
+        if (visual) visual.enabled = false;
+      }
+    }
+
+    if (this.startButtonText) {
+      this.startButtonText.getSceneObject().enabled = showing;
+      if (showing) {
+        const t = this.startButtonText.getSceneObject().getTransform();
+        t.setLocalPosition(new vec3(0, 2, -this.hudDistanceCm + 2));
+        t.setLocalScale(new vec3(0.8, 0.8, 0.8));
+        this.startButtonText.text = this.startButtonLabel;
+        this.startButtonText.textFill.color = new vec4(0.02, 0.06, 0.08, 1);
+
+        let press = 0;
+        if (this.pressT >= 0) press = 1 - Math.min(1, this.pressT / 0.25);
+        const glow = 0.62 + 0.12 * Math.sin(this.elapsed * 1.8) + press * 0.38;
+        this.plate(
+          this.startButtonText,
+          new vec4(
+            Math.min(1, COL_DRIFTER.r * glow + press * 0.4),
+            Math.min(1, COL_DRIFTER.g * glow),
+            Math.min(1, COL_DRIFTER.b * glow),
+            1
+          ),
+          Math.min(1, 0.88 + press * 0.12),
+          this.plateRadius,
+          this.plateMargin * 1.5
+        );
+      }
+    }
   }
 
   // ---------------- Sense strand ----------------
@@ -915,6 +1169,7 @@ export class LumiCatchManager extends BaseScriptComponent {
     const worldUp = new vec3(0, 1, 0);
 
     this.updateCloaking();
+    this.updateStartScreen(dt);
     this.updateHud(dt);
 
     // Moods are timed, and lapse back to calm on their own.
@@ -1185,6 +1440,9 @@ export class LumiCatchManager extends BaseScriptComponent {
   // ---------------- Capture ----------------
 
   private onSwing(peak: number) {
+    // Nothing is catchable until the player has begun.
+    if (this.requireStart && !this.started) return;
+
     const camT = this.camera.getTransform();
     const camPos = camT.getWorldPosition();
     const fwd = this.camForward();
@@ -1246,7 +1504,12 @@ export class LumiCatchManager extends BaseScriptComponent {
       cleanup.reset(2.0);
     }
 
-    if (this.captureSound) this.captureSound.play(1);
+    if (this.captureSound) {
+      // Move the emitter to where the creature was, so the spatialised chime
+      // comes from the right direction.
+      this.captureSound.getSceneObject().getTransform().setWorldPosition(pos);
+      this.captureSound.play(1);
+    }
 
     // Back to back catches spook the shoal.
     this.catchTimes.push(this.elapsed);

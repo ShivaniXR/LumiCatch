@@ -29,22 +29,43 @@
 const int MOTOR_PIN = D9;   // PWM-capable on UNO Q
 
 // ---------- MPU-6050 registers ----------
-const uint8_t MPU_ADDR      = 0x68;
+// AD0 low or unconnected gives 0x68; AD0 pulled high gives 0x69. A jumper
+// nudged onto a 3V3 line silently moves the whole module, and the symptom is
+// identical to a dead sensor. So probe both and use whichever answers.
+const uint8_t MPU_ADDR_LOW  = 0x68;
+const uint8_t MPU_ADDR_HIGH = 0x69;
+uint8_t mpuAddr = MPU_ADDR_LOW;
+const uint8_t REG_WHO_AM_I  = 0x75;   // 0x68 on a real MPU-6050
 const uint8_t REG_PWR_MGMT  = 0x6B;
 const uint8_t REG_ACC_CFG   = 0x1C;
 const uint8_t REG_ACC_XOUT  = 0x3B;
 const float   LSB_PER_G     = 4096.0f;  // +/-8g range
 
 // ---------- Swing detection tuning ----------
-// Measured on this net's own IMU during Phase 1:
-//   at rest    ~0.87 g   (this module reads about 8 per cent low, harmless)
-//   walking     0.65 to 1.08 g
-//   real swing  peaks at 5.50 g
-// 2.2 sits twice above the worst walking reading and well under half a swing,
-// so it has margin in both directions. Re-measure after the net is assembled:
-// mounting the sensor near the hoop lengthens the lever arm and will push
-// swing peaks higher.
-const float SWING_THRESHOLD_G = 2.2f;   // raise if false triggers, lower if misses
+// Measured twice. On a bare breadboard, then again once mounted on the net,
+// because mounting changed everything:
+//
+//                      bare board      mounted on the net
+//   at rest            0.87 g          -
+//   walking            0.65 to 1.08    2.0 to 3.0     <- three times higher
+//   a real swing       5.50 peak       above 4.0
+//
+// Mass on a lever amplifies every footfall, so the walking figure tripled
+// while the swing figure did not. That left only about 1 g of separation, and
+// the old 2.2 threshold sat INSIDE the walking band: simply carrying the net
+// registered as swinging.
+//
+// 3.5 sits between the two, with roughly 0.5 g of margin each way. If walking
+// still triggers, raise it. If honest swings are missed, lower it. There is
+// not much room, so change it in steps of 0.2.
+const float SWING_THRESHOLD_G = 3.5f;   // raise if false triggers, lower if misses
+
+// Phase 3 aid: give a soft blip on every detected swing, so swing detection
+// can be checked by feel when the console is not cooperating. It reuses the
+// non-blocking haptic state machine, so it costs nothing.
+// SET THIS FALSE BEFORE FILMING, or every swing buzzes whether or not it
+// caught anything.
+const bool BUZZ_ON_SWING = true;
 const unsigned long PEAK_WINDOW_MS = 150;
 const unsigned long DEBOUNCE_MS    = 400;
 
@@ -79,10 +100,37 @@ float windowPeak = 0.0f;
 // Each pattern is a list of {duration_ms, pwm} steps, 0 duration ends it.
 struct Step { unsigned int ms; uint8_t pwm; };
 
-const Step PAT_SHORT[]  = { {80, 255}, {0, 0} };
-const Step PAT_DOUBLE[] = { {70, 255}, {80, 0}, {70, 255}, {0, 0} };
-const Step PAT_LONG[]   = { {350, 255}, {0, 0} };
-const Step PAT_RAPID[]  = { {60, 255}, {50, 0}, {60, 255}, {50, 0}, {60, 255}, {0, 0} };
+// Designed around what this motor actually does, measured in Phase 2:
+//
+//   PWM floor 55   below this the rotor does not turn at all, so the usable
+//                  range is 55 to 255 and intensity is a real dimension
+//   coast-down     roughly 80 to 100 ms. Any gap shorter than that and the
+//                  motor never stops, so separate taps smear into one buzz
+//
+// The first attempt used 50 and 80 ms gaps and two pairs were
+// indistinguishable. Gaps are now 150 ms, comfortably past coast-down, and
+// the four patterns differ by SHAPE rather than by counting taps:
+//
+//   nearby   a soft short blip, deliberately gentle, it fires most often
+//   rare     two clean separated taps
+//   capture  one long sustained buzz
+//   combo    that same buzz, then two taps: capture, and then some
+//
+// If taps still blur, raise HAPTIC_GAP_MS to 200.
+const unsigned int HAPTIC_GAP_MS = 150;
+
+const Step PAT_SHORT[]  = { {70, 110}, {0, 0} };
+const Step PAT_DOUBLE[] = { {70, 255}, {HAPTIC_GAP_MS, 0}, {70, 255}, {0, 0} };
+const Step PAT_LONG[]   = { {420, 255}, {0, 0} };
+const Step PAT_RAPID[]  = { {320, 255}, {HAPTIC_GAP_MS, 0},
+                            {70, 255},  {HAPTIC_GAP_MS, 0},
+                            {70, 255},  {0, 0} };
+
+// Diagnostic only, used by BUZZ_ON_SWING. Full power and long enough to be
+// unmistakable through tape and a handle. The nearby blip is deliberately
+// gentle, which makes it a poor thing to hunt for when you are trying to
+// work out whether detection fires at all.
+const Step PAT_TICK[]   = { {140, 255}, {0, 0} };
 
 const Step* activePattern = nullptr;
 int stepIndex = 0;
@@ -125,17 +173,17 @@ String get_samples() {
 // ================= MPU-6050 helpers =================
 
 void mpuWrite(uint8_t reg, uint8_t val) {
-  Wire.beginTransmission(MPU_ADDR);
+  Wire.beginTransmission(mpuAddr);
   Wire.write(reg);
   Wire.write(val);
   Wire.endTransmission();
 }
 
 bool mpuReadAccel(float &gx, float &gy, float &gz) {
-  Wire.beginTransmission(MPU_ADDR);
+  Wire.beginTransmission(mpuAddr);
   Wire.write(REG_ACC_XOUT);
   if (Wire.endTransmission(false) != 0) return false;
-  if (Wire.requestFrom((int)MPU_ADDR, 6) != 6) return false;
+  if (Wire.requestFrom((int)mpuAddr, 6) != 6) return false;
   int16_t rx = (Wire.read() << 8) | Wire.read();
   int16_t ry = (Wire.read() << 8) | Wire.read();
   int16_t rz = (Wire.read() << 8) | Wire.read();
@@ -145,6 +193,26 @@ bool mpuReadAccel(float &gx, float &gy, float &gz) {
   return true;
 }
 
+bool mpuProbe() {
+  const uint8_t candidates[2] = { MPU_ADDR_LOW, MPU_ADDR_HIGH };
+  for (int i = 0; i < 2; i++) {
+    Wire.beginTransmission(candidates[i]);
+    if (Wire.endTransmission() == 0) {
+      mpuAddr = candidates[i];
+      return true;
+    }
+  }
+  return false;
+}
+
+int mpuReadReg(uint8_t reg) {
+  Wire.beginTransmission(mpuAddr);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return -1;
+  if (Wire.requestFrom((int)mpuAddr, 1) != 1) return -1;
+  return Wire.read();
+}
+
 void mpuInit() {
   mpuWrite(REG_PWR_MGMT, 0x00);  // wake up
   delay(10);
@@ -152,30 +220,89 @@ void mpuInit() {
   delay(10);
 }
 
+// ================= Boot self test =================
+//
+// The console is not dependable once the Bridge is up, so the motor reports
+// the IMU's health instead. Count the buzzes at boot:
+//
+//   1 long    IMU alive and reading gravity. All good.
+//   2 short   nothing answering at 0x68. Wiring: SDA, SCL, VCC or GND.
+//   3 short   answering but reading zero. Asleep, or the sensor has died.
+//   4 short   WHO_AM_I unexpected. Wrong chip, or a bad connection.
+
+void buzzCode(int count, unsigned int ms) {
+  for (int i = 0; i < count; i++) {
+    analogWrite(MOTOR_PIN, 255);
+    delay(ms);
+    analogWrite(MOTOR_PIN, 0);
+    delay(190);
+  }
+}
+
+int imuSelfTest() {
+  if (!mpuProbe()) return 2;                      // nobody home at either address
+
+  int who = mpuReadReg(REG_WHO_AM_I);
+  if (who != 0x68 && who != 0x70 && who != 0x71 && who != 0x73) return 4;
+
+  mpuInit();
+  delay(60);
+
+  float gx, gy, gz;
+  if (!mpuReadAccel(gx, gy, gz)) return 3;
+  // Gravity is always there. Near zero means asleep, not weightless.
+  if (sqrtf(gx * gx + gy * gy + gz * gz) < 0.3f) return 3;
+
+  return 1;
+}
+
 // ================= Setup =================
 
 void setup() {
-  Monitor.begin();
-  delay(3000);   // Monitor needs a moment or the first lines are lost
+  // Motor pin first, before anything that takes time. An uninitialised pin
+  // can float high, and the Monitor pause below is three seconds long: that
+  // is three seconds of a motor buzzing on the net every time it boots.
   pinMode(MOTOR_PIN, OUTPUT);
   analogWrite(MOTOR_PIN, 0);
+
+  // Bridge BEFORE Monitor. Monitor rides on the same Router Bridge transport,
+  // so bringing the Bridge up afterwards resets the channel and every print
+  // after that point vanishes. Phases 1 and 2 printed fine precisely because
+  // neither of them called Bridge.begin().
+  Bridge.begin();
+  Bridge.provide("get_event", get_event);
+
+  // Returning a String over the Bridge is the one thing in this firmware that
+  // has never been proven on hardware. If it will not compile, or the sketch
+  // dies at boot, comment out just this line: only the trajectory predictor
+  // depends on it, and swing detection, haptics and the game all still work.
+  Bridge.provide("get_samples", get_samples);
+
+  // If provide_safe does not exist in your Arduino_RouterBridge version, use
+  // plain provide here. play_haptic only assigns one volatile int, so running
+  // it on the RPC thread is harmless.
+  Bridge.provide_safe("play_haptic", play_haptic);
+
+  Monitor.begin();
+  delay(3000);   // Monitor needs a moment or the first lines are lost
 
   Wire.begin();
   delay(100);
   mpuInit();
   delay(50);
 
-  Bridge.begin();
-  Bridge.provide("get_event", get_event);
-  Bridge.provide("get_samples", get_samples);
-  Bridge.provide_safe("play_haptic", play_haptic);
-
-  // Boot confirmation buzz so you know the firmware is alive.
-  analogWrite(MOTOR_PIN, 200);
-  delay(150);
-  analogWrite(MOTOR_PIN, 0);
-
-  Monitor.println("LumiCatch net ready");
+  // Boot report, through the motor. One long buzz means the IMU is healthy;
+  // any burst of short ones is a fault code, see the table above.
+  int health = imuSelfTest();
+  if (health == 1) {
+    buzzCode(1, 400);
+    Monitor.print("LumiCatch net ready, IMU healthy at 0x");
+    Monitor.println(mpuAddr, HEX);
+  } else {
+    buzzCode(health, 90);
+    Monitor.print("LumiCatch: IMU SELF TEST FAILED, code ");
+    Monitor.println(health);
+  }
 }
 
 // ================= Loop =================
@@ -198,6 +325,7 @@ void loop() {
       if (zeroRun >= 20) {
         zeroRun = 0;
         sensorRecoveries++;
+        mpuProbe();      // it may have come back at the other address
         mpuInit();
         Monitor.print("IMU had reset to sleep, woken again (recovery #");
         Monitor.print(sensorRecoveries);
@@ -241,6 +369,7 @@ void loop() {
         if (mag > windowPeak) windowPeak = mag;
         if (now - swingTimer >= PEAK_WINDOW_MS) {
           pendingPeak = windowPeak;   // hand off to Linux side
+          if (BUZZ_ON_SWING) requestedPattern = 9;   // strong tick, felt not seen
           Monitor.print("Swing peak: ");
           Monitor.println(windowPeak);
           swingState = COOLDOWN;
@@ -261,6 +390,7 @@ void loop() {
       case 2: activePattern = PAT_DOUBLE; break;
       case 3: activePattern = PAT_LONG;   break;
       case 4: activePattern = PAT_RAPID;  break;
+      case 9: activePattern = PAT_TICK;   break;   // BUZZ_ON_SWING diagnostic
       default: activePattern = nullptr;
     }
     requestedPattern = 0;

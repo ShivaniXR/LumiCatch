@@ -32,7 +32,9 @@
 #include <Wire.h>
 #include "Arduino_RouterBridge.h"
 
-const uint8_t MPU_ADDR     = 0x68;
+const uint8_t MPU_ADDR_LOW  = 0x68;   // AD0 low or unconnected
+const uint8_t MPU_ADDR_HIGH = 0x69;   // AD0 pulled high
+uint8_t MPU_ADDR = MPU_ADDR_LOW;      // set to whichever actually answers
 const uint8_t REG_WHO_AM_I = 0x75;
 const uint8_t REG_PWR_MGMT = 0x6B;
 const uint8_t REG_ACC_CFG  = 0x1C;
@@ -98,16 +100,25 @@ void setup() {
   Monitor.println("");
   Monitor.println("=== Neon-Net Phase 1: IMU check ===");
 
-  // --- Test 1: is anything on the bus? ---
-  Wire.beginTransmission(MPU_ADDR);
-  uint8_t err = Wire.endTransmission();
-  if (err != 0) {
-    Monitor.println("FAIL: nothing answering at 0x68.");
+  // --- Test 1: is anything on the bus, at either address? ---
+  bool found = false;
+  const uint8_t candidates[2] = { MPU_ADDR_LOW, MPU_ADDR_HIGH };
+  for (int i = 0; i < 2 && !found; i++) {
+    Wire.beginTransmission(candidates[i]);
+    if (Wire.endTransmission() == 0) {
+      MPU_ADDR = candidates[i];
+      found = true;
+    }
+  }
+  if (!found) {
+    Monitor.println("FAIL: nothing answering at 0x68 or 0x69.");
     Monitor.println("      Check SDA and SCL are not swapped.");
     Monitor.println("      Check VCC is on 3V3 and GND is connected.");
     Monitor.println("      If the module has an AD0 pin, leave it unconnected.");
+    Monitor.println("      Check VCC and GND first: no power means no answer.");
   } else {
-    Monitor.println("PASS: a device answered at 0x68");
+    Monitor.print("PASS: a device answered at 0x");
+    Monitor.println(MPU_ADDR, HEX);
   }
 
   // --- Test 2: is it the chip we think it is? ---
