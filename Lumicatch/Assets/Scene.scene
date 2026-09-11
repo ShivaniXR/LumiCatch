@@ -3427,7 +3427,6 @@
     creatureParent: true
     captureVolume: true
     ambientVolume: true
-    usePinchToSwing: true
     spawnAllAround: true
     separationCm: true
     captureRangeCm: true
@@ -3499,7 +3498,7 @@
       ambientVolume: 0.400000
       serverUrl: "ws://172.20.10.2:8765"
       simulate: false
-      usePinchToSwing: true
+      usePinchToSwing: false
       pinchAsSwing: true
       creatureCount: !<float> 14.000000
       spawnAllAround: true

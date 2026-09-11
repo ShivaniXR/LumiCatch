@@ -63,9 +63,10 @@ const float SWING_THRESHOLD_G = 3.5f;   // raise if false triggers, lower if mis
 // Phase 3 aid: give a soft blip on every detected swing, so swing detection
 // can be checked by feel when the console is not cooperating. It reuses the
 // non-blocking haptic state machine, so it costs nothing.
-// SET THIS FALSE BEFORE FILMING, or every swing buzzes whether or not it
-// caught anything.
-const bool BUZZ_ON_SWING = true;
+// Set TRUE to debug swing detection by feel, FALSE for play and filming.
+// While true every swing buzzes whether or not it caught anything, which
+// muddles the haptic language: the buzz is supposed to mean CAUGHT.
+const bool BUZZ_ON_SWING = false;
 const unsigned long PEAK_WINDOW_MS = 150;
 const unsigned long DEBOUNCE_MS    = 400;
 
