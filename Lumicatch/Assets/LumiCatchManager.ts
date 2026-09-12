@@ -122,11 +122,113 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input nearbyRangeCm: number = 90;
   @input nearbyCooldownS: number = 2.5;
 
+  // ---- Swing quality: sneak or lunge ----
+  //
+  // The firmware has always sent the swing's peak in g, and the game used to
+  // print it and throw it away. Every swing was therefore identical, which
+  // made the net an expensive button. Now how hard you swing is the decision
+  // the whole game turns on:
+  //
+  //   a sneak   short reach, and only a creature you practically brushed
+  //             past notices
+  //   a lunge   nearly double the reach, but it is loud: everything close by
+  //             wakes up, and a woken creature cannot be caught
+  //
+  // Thresholds are in g and must be re-measured on the assembled net. Walking
+  // already reads 2 to 3 g, so the gentle band sits above that, not below it.
+  @input useSwingQuality: boolean = true;   // off restores the old flat reach
+  @input gentleSwingG: number = 4.6;        // under this is a sneak
+  @input sneakRangeCm: number = 85;
+  @input lungeRangeCm: number = 170;
+  @input sneakSpookCm: number = 40;         // a sneak disturbs almost nothing
+  @input lungeSpookCm: number = 120;        // a lunge wakes the neighbourhood
+
+  // ---- The catch, made to land ----
+  // A catch used to be obj.destroy(): the creature blinked out and left
+  // nothing to react to. Now it rushes into the net and shrinks away, with a
+  // burst of motes thrown off. burstPrefab is the old sphere creature prefab,
+  // so this costs no new assets.
+  @input catchFlyS: number = 0.2;           // how long the rush into the net takes
+  @input catchFlyToCm: number = 35;         // how close to the face it ends
+  @input burstMotes: number = 6;
+  @input burstSpreadCm: number = 26;
+  @input burstLifeS: number = 0.45;
+  @input burstMoteScale: number = 3.0;      // world scale, tune if motes look wrong
+
+  // ---- Chains ----
+  // Catches inside the window multiply. This existed as a flat, invisible x2;
+  // now it escalates and shows on the score line so it is worth chasing.
+  @input comboWindowS: number = 4.0;
+  @input comboMax: number = 4;
+
+  // ---- The bloom finale ----
+  // A round used to feel the same at second 5 and second 55. The last stretch
+  // now turns into a feeding frenzy: extra creatures, everything worth more.
+  // This is mostly for the film, which needs a climax rather than a stop.
+  @input bloomSeconds: number = 15;         // 0 disables the finale
+  @input bloomSpawnCount: number = 6;
+  @input bloomMultiplier: number = 2;
+
   // ---- Creature mix ----
   @input rareChance: number = 0.22;
   @input skittishChance: number = 0.35;
-  @input creatureScale: number = 1.0;
+  // Tuned against the skeleton, measured: the creature spans 33.2 cm tall at
+  // scale 0.10, so 0.06 puts it at roughly 20 cm, about a large grapefruit.
+  // Big enough to read at 1 to 3 m on a 27 degree display, and comfortably
+  // smaller than the net hoop so catches look precise.
+  //
+  // Do NOT tune this against a bounding box. worldAabbMin/Max on a skinned
+  // mesh returns the rest pose, which for this model is a flat wide slab and
+  // nothing like the upright creature on screen. The startup log measures the
+  // posed bones instead, and runs slightly small since the mesh skins a little
+  // beyond them.
+  @input creatureScale: number = 0.06;
   @input rareScaleMult: number = 1.35;
+
+  // The unlit neon material every creature is tinted from. Set this when the
+  // creature prefab is an imported model, so the model's own realistic
+  // material is replaced rather than tinted. Leave it empty and the prefab's
+  // own material is used instead.
+  @input('Asset.Material') @allowUndefined neonMaterial: Material;
+
+  // Corrects an imported model's rest orientation, in degrees about X.
+  //
+  // For THIS model the correct value is 0: Lens Studio's importer already
+  // resolves the glTF axis chain, and the prefab arrives upright. It is kept as
+  // an input only because a different model may not.
+  //
+  // Left here as a warning. Three separate 'corrections' were applied to this
+  // value before settling on doing nothing, because two different measurements
+  // both reported the creature was upright when it was plainly lying on its
+  // side on screen:
+  //
+  //   worldAabbMin/Max  on a SKINNED mesh these return the REST POSE bounds
+  //                     transformed by the object matrix, not the vertices
+  //                     being drawn. Useless for orientation, and useless for
+  //                     size too.
+  //   a single bone pair Bone_00 to Bone.001_end_010 is a short bone inside
+  //                     the bell. A real direction that means nothing.
+  //
+  // The startup log now measures the root joint against the average of every
+  // leaf bone, which is the direction the tentacles actually hang. Upright
+  // reads as roughly (0, -1, 0). Trust that line, and trust your eyes over any
+  // bounding box.
+  @input modelUprightDeg: number = 0;
+
+  // How solid a creature is, 0 transparent to 1 opaque.
+  //
+  // The spheres were opaque and it did not matter: a sphere silhouette is a
+  // sphere whichever way you turn it. A jellyfish is almost all silhouette, so
+  // at alpha 1 the model renders as a featureless neon blob with no bell, no
+  // tentacles and no way to tell which way up it is. The source model ships
+  // translucent for exactly this reason. This is what makes it read as a
+  // jellyfish rather than a balloon.
+  @input creatureOpacity: number = 0.55;
+
+  // Jellyfish do not hang in a rigid grid, they drift at slight angles. A few
+  // degrees of lean, fixed per creature so it does not wobble, stops the shoal
+  // looking like a formation. 0 makes every one perfectly vertical.
+  @input tiltVarietyDeg: number = 16;
 
   // ---- Movement ----
   @input driftAmplitudeCm: number = 22;
@@ -139,8 +241,38 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input leashMaxCm: number = 260;
 
   // ---- Look ----
-  @input pulseAmount: number = 0.12;
+  // How fast to play the model's own swim cycle. 1.0 is the clip as authored,
+  // which is far too slow to see at this size. 0 leaves it untouched.
+  @input swimSpeed: number = 2.2;
+
+  // A whole-body breathing pulse, on top of the skeletal swim.
+  //
+  // This was 0.12 for the spheres, then set to 0 on the grounds that a real
+  // animation made it redundant. That was wrong: measuring the skeleton showed
+  // the swim cycle moves about 1.6 cm in 1.6 s, which is invisible on a 20 cm
+  // creature at arm's length on this display. A small scale pulse is what
+  // actually makes the shoal look alive, so it is back, gentler than before.
+  @input pulseAmount: number = 0.07;
   @input spinRate: number = 0.35;            // radians per second
+
+  // ---- Room bounds ----
+  // A play volume, not true wall detection. Creature positions are clamped to
+  // a cylinder centred where the player stood when the round began, which
+  // stops them drifting through walls and furniture in a normal room.
+  //
+  // Real geometry awareness would use the Spectacles World Mesh and a raycast
+  // per creature. That is the proper fix and the obvious upgrade, but it is a
+  // far bigger job than clamping a radius.
+  // World mesh is the real fix: cast a ray from the player to each creature
+  // and see whether anything solid is in the way. The play volume below stays
+  // on as a backstop, because it costs nothing and covers the case where the
+  // room has not been scanned yet.
+  @input useWorldMesh: boolean = true;
+  @input wallMarginCm: number = 25;     // keep this far off any surface
+  @input useRoomBounds: boolean = true;
+  @input roomRadiusCm: number = 170;    // horizontal reach from the centre
+  @input roomCeilingCm: number = 55;    // above head height
+  @input roomFloorCm: number = 110;     // below head height
 
   // ---- Schools and mood ----
   @input schoolCount: number = 2;
@@ -159,31 +291,37 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input curiousMisses: number = 2;
   @input curiousSeconds: number = 8.0;
 
-  // ---- Sense strand (the AI, made visible) ----
-  // The net's own bioluminescence rather than a readout. It takes the same
-  // colours as the creatures so it belongs to the world: cyan when the shoal
-  // is calm, violet when curious, gold when spooked. Its glow extends with
-  // difficulty, and a mote runs along it the instant the board predicts a
-  // swing. Everything is positioned by script, because editor-side transforms
-  // on camera children do not survive a reload.
-  @input('Component.Text') @allowUndefined moodText: Text;
+  // ---- Readouts (the AI, made visible) ----
+  // There used to be a 'sense strand' here: an arc of glowing motes low in the
+  // view that carried mood, difficulty and prediction all at once. It was
+  // pretty and it was unreadable. The first playtest verdict was 'the ui at the
+  // bottom that changes colour blue orange etc whats that for?', and after the
+  // readouts below were added it was simply redundant clutter on a 27 degree
+  // display, so it was cut. Each piece of the AI now gets its OWN labelled
+  // readout, positioned by script, because editor-side transforms on camera
+  // children do not survive a reload.
+  @input('Component.Text') @allowUndefined moodFaceText: Text;
+  @input('Component.Text') @allowUndefined predictFlashText: Text;
+  @input('Component.Text') @allowUndefined catchPopupText: Text;
+  @input('Component.Text') @allowUndefined difficultyLabelText: Text;
+
+  // Faces as plain characters rather than emoji, because the default Lens
+  // Studio font has no emoji glyphs and you would get empty boxes. Change
+  // these in the Inspector if your font does support them.
+  @input moodFaceCalm: string = '^_^';
+  @input moodFaceCurious: string = 'o_o';
+  @input moodFaceSpooked: string = '>_<';
   @input hudDistanceCm: number = 100;   // sits on the 1 m focus plane
-  @input hudWidthCm: number = 30;
+  @input hudWidthCm: number = 30;       // how far apart the corner readouts sit
   @input hudYCm: number = -20;
-  @input hudMoteCount: number = 11;
-  @input hudMoteBaseCm: number = 2.2;
-  @input hudMoteLitCm: number = 4.5;
-  @input hudArcCm: number = 2.5;        // gentle droop, like a resting strand
-  @input pulseTravelS: number = 0.7;
-  @input moodHoldS: number = 2.6;
   @input scoreScale: number = 1.5;
-  @input moodScale: number = 0.95;
 
   // ---- Start screen ----
   // An attract state: creatures drift dimmed behind a title and a button until
   // the player begins. It exists as much for filming as for the player, since
   // it lets every take start clean instead of mid-flight.
   @input requireStart: boolean = true;
+  @input roundSeconds: number = 60;     // 0 disables the timer entirely
   @input('SceneObject') @allowUndefined startTitle: SceneObject;
   @input('Component.Text') @allowUndefined startTitleText: Text;
   @input('Component.Text') @allowUndefined startStatusText: Text;
@@ -224,6 +362,15 @@ export class LumiCatchManager extends BaseScriptComponent {
   private mood: number = MOOD_CALM;
   private moodUntil: number = 0;
   private catchTimes: number[] = [];
+  // Creatures mid-flight into the net, and the motes thrown off a catch.
+  // Neither is in this.creatures any more, so only updateCaught touches them.
+  private caught: { obj: SceneObject; t: number; from: vec3; scale: number }[] = [];
+  private motes: { obj: SceneObject; t: number; from: vec3; dir: vec3 }[] = [];
+  private comboCount: number = 0;
+  private comboUntil: number = -1;
+  private bloomActive: boolean = false;
+  private bloomAnnounced: boolean = false;
+  private firstSpan: vec3 = null;      // for the animation check at startup
   private schoolAngle: number[] = [];
   private schoolCentre: vec3[] = [];
 
@@ -235,16 +382,21 @@ export class LumiCatchManager extends BaseScriptComponent {
   private diffAlertMult: number = 1.0;
   private diffCloaking: boolean = false;
 
-  // Sense strand runtime state.
-  private motes: SceneObject[] = [];
-  private moteMats: Material[] = [];
-  private pulseT: number = -1;
-  private moodFadeT: number = -1;
-  private moodLabel: string = '';
-  // Stand-in for the board's adaptive model while running in simulate mode,
-  // so the strand is alive in preview instead of sitting dark at zero.
+  // Stand-in for the board's adaptive model while running in simulate mode, so
+  // the readouts are alive in preview instead of sitting dark at zero.
   private simOutcomes: boolean[] = [];
   private started: boolean = false;
+  private roundLeft: number = 0;
+  private roomCentre: vec3 = null;      // where the player stood at kick off
+  private hitSession: any = null;
+  private wallCheckIdx: number = 0;
+  private wallPushes: number = 0;
+  private predictFlashT: number = -1;
+  private predictLabel: string = '';
+  private catchPopT: number = -1;
+  private catchLabel: string = '';
+  private roundOver: boolean = false;
+  private bestScore: number = 0;
   private pressT: number = -1;          // button press animation, seconds
   private startMats: Material[] = [null, null];   // button body, title
 
@@ -264,11 +416,11 @@ export class LumiCatchManager extends BaseScriptComponent {
     }
 
     this.initSchools(this.camera.getTransform().getWorldPosition());
-    this.buildHud();
     this.bindStartButton();
-    const hudReport = this.createEvent('DelayedCallbackEvent');
-    hudReport.bind(() => this.reportHud());
-    hudReport.reset(1.0);
+    this.setupWorldMesh();
+    const sizeReport = this.createEvent('DelayedCallbackEvent');
+    sizeReport.bind(() => this.reportCreatureSize());
+    sizeReport.reset(1.0);
 
     for (let i = 0; i < this.creatureCount; i++) {
       // Force the first one to be a Drifter so there is always an easy
@@ -370,7 +522,6 @@ export class LumiCatchManager extends BaseScriptComponent {
         ? 'LumiCatch: simulated swing'
         : 'LumiCatch: pinch swing (IMU bypassed)'
     );
-    this.fireWave();
     this.onSwing(3.0);
   }
 
@@ -482,8 +633,12 @@ export class LumiCatchManager extends BaseScriptComponent {
           : this.mood === MOOD_CURIOUS
           ? 'curious'
           : 'calm';
+      // Score travels too, because it is POINTS and the dashboard counts
+      // landed swings. Two different numbers, so the dashboard shows both.
       this.socket.send(
-        JSON.stringify({ type: 'result', hit: hit, mood: mood })
+        JSON.stringify({
+          type: 'result', hit: hit, mood: mood, score: this.score
+        })
       );
     }
   }
@@ -552,7 +707,8 @@ export class LumiCatchManager extends BaseScriptComponent {
       if (!m) continue;
       const base = i === KIND_SKITTISH ? COL_SKITTISH : COL_DRIFTER;
       m.mainPass.baseColor = new vec4(
-        base.r * attract, base.g * attract, base.b * attract, base.a
+        base.r * attract, base.g * attract, base.b * attract,
+        this.creatureOpacity
       );
     }
 
@@ -570,7 +726,7 @@ export class LumiCatchManager extends BaseScriptComponent {
       COL_LUMEN.r * k,
       COL_LUMEN.g * k,
       COL_LUMEN.b * k,
-      COL_LUMEN.a
+      this.creatureOpacity
     );
   }
 
@@ -582,6 +738,64 @@ export class LumiCatchManager extends BaseScriptComponent {
    * fires when an interactor actually resolved to this object. Pinching at
    * thin air does nothing.
    */
+  /**
+   * Bring up world mesh hit testing. Built in modules are reachable through
+   * the 'LensStudio:' prefix, so this needs no asset wiring, the same trick
+   * that gets the Internet Module.
+   */
+  private setupWorldMesh() {
+    if (!this.useWorldMesh) return;
+    try {
+      const wqm = require('LensStudio:WorldQueryModule');
+      this.hitSession = wqm.createHitTestSession();
+      this.hitSession.start();
+      print('LumiCatch: world mesh hit testing active');
+    } catch (e) {
+      this.hitSession = null;
+      print('LumiCatch: no world mesh available, using the play volume only');
+    }
+  }
+
+  /**
+   * Check one creature per frame against the room geometry. A ray from the
+   * player to the creature that hits something first means the creature is
+   * inside a wall or a sofa, so it gets pulled back in front of the surface.
+   *
+   * One per frame on purpose: fourteen raycasts every frame would be wasteful,
+   * and creatures drift slowly enough that checking each one about three times
+   * a second is ample.
+   */
+  private checkWalls(camPos: vec3) {
+    if (!this.hitSession || this.creatures.length === 0) return;
+
+    this.wallCheckIdx = (this.wallCheckIdx + 1) % this.creatures.length;
+    const c = this.creatures[this.wallCheckIdx];
+    const toC = c.pos.sub(camPos);
+    const len = toC.length;
+    if (len < 20) return;
+
+    // Probe slightly past the creature, so a wall sitting right at it counts.
+    const end = camPos.add(
+      toC.uniformScale((len + this.wallMarginCm) / len)
+    );
+
+    this.hitSession.hitTest(camPos, end, (hit) => {
+      if (!hit || !hit.position) return;
+      // The array may have changed while the hit test was in flight, so work
+      // from the object rather than the index.
+      if (this.creatures.indexOf(c) < 0) return;
+
+      const d = hit.position.distance(camPos);
+      if (d >= len) return;               // the surface is behind it, fine
+
+      const pull = Math.max(this.spawnMinCm * 0.5, d - this.wallMarginCm);
+      const p = camPos.add(toC.uniformScale(pull / len));
+      c.pos = p;
+      c.home = p;                          // or it swims straight back in
+      this.wallPushes++;
+    });
+  }
+
   private bindStartButton() {
     if (!this.startButton) return;
     const it = this.startButton.getComponent(Interactable.getTypeName());
@@ -598,26 +812,89 @@ export class LumiCatchManager extends BaseScriptComponent {
     print('LumiCatch: start button armed');
   }
 
+  /** Count the round down, and end it cleanly when time runs out. */
+  private updateRound(dt: number) {
+    // With the start gate off there is no button to press, so the round has to
+    // begin on its own. beginGame() was only ever reachable from the button,
+    // which meant requireStart=false silently disabled the timer, the bloom
+    // and the score reset. That is precisely the fallback you would reach for
+    // if the button misbehaved on the day, so it needs to work.
+    if (!this.requireStart && !this.started && !this.roundOver) {
+      this.beginGame();
+    }
+
+    if (!this.started || this.roundOver || this.roundSeconds <= 0) return;
+
+    this.roundLeft -= dt;
+
+    // The bloom. For the last stretch the shoal swarms: extra creatures
+    // arrive and everything is worth more. Announced with its own popup and
+    // the rare-creature haptic, so the player feels it start without reading.
+    if (
+      !this.bloomAnnounced &&
+      this.bloomSeconds > 0 &&
+      this.roundLeft <= this.bloomSeconds
+    ) {
+      this.bloomAnnounced = true;
+      this.bloomActive = true;
+      for (let i = 0; i < this.bloomSpawnCount; i++) this.spawnCreature(-1);
+      this.catchLabel = 'BLOOM\nx' + this.bloomMultiplier + '  ALL';
+      this.catchPopT = 0;
+      this.sendHaptic(2);
+      print(
+        'LumiCatch: bloom, +' + this.bloomSpawnCount + ' creatures, x' +
+        this.bloomMultiplier + ' points'
+      );
+    }
+
+    if (this.roundLeft > 0) return;
+
+    this.roundLeft = 0;
+    this.roundOver = true;
+    if (this.score > this.bestScore) this.bestScore = this.score;
+
+    // Back to the attract state, but showing the result rather than the title.
+    this.started = false;
+    print('LumiCatch: round over, score ' + this.score);
+  }
+
   private beginGame() {
     this.started = true;
+    this.roundOver = false;
+    this.roundLeft = this.roundSeconds;
+    this.roomCentre = this.camera.getTransform().getWorldPosition();
     this.score = 0;
     this.updateScore(0);
     this.simOutcomes = [];
+    this.bloomActive = false;
+    this.bloomAnnounced = false;
+    this.comboCount = 0;
+    this.comboUntil = -1;
+
+    // Bloom spawns survive until they are caught, so without this every round
+    // starts more crowded than the one before it.
+    while (this.creatures.length > this.creatureCount) {
+      const extra = this.creatures.pop();
+      extra.obj.destroy();
+    }
 
     // Everything the start screen was holding back now comes up: the shoal
-    // returns to full brightness, the strand lights, the score appears and
-    // swings start counting. updateStartScreen hides the panel on this frame.
-    this.moodLabel = 'they drift all around you';
-    this.moodFadeT = 0;
+    // returns to full brightness, the readouts appear and swings start
+    // counting. updateStartScreen hides the panel on this frame.
 
     print(
       'LumiCatch: game started, ' + this.creatures.length +
-      ' creatures live, strand and score on'
+      ' creatures live, readouts and score on'
     );
   }
 
   /** Show the connection state on the start screen, where eyes already are. */
   private startStatusLine(): string {
+    if (this.roundOver) {
+      return this.bestScore > this.score
+        ? 'best ' + this.bestScore
+        : 'a new best';
+    }
     if (this.simulate) return 'practice mode';
     return this.connected ? 'net connected' : 'looking for the net...';
   }
@@ -647,7 +924,9 @@ export class LumiCatchManager extends BaseScriptComponent {
       const t = this.startTitleText.getSceneObject().getTransform();
       t.setLocalPosition(new vec3(0, 16, -this.hudDistanceCm));
       t.setLocalScale(new vec3(1.9, 1.9, 1.9));
-      this.startTitleText.text = this.startTitleLabel;
+      this.startTitleText.text = this.roundOver
+        ? 'SCORE  ' + this.score
+        : this.startTitleLabel;
       this.startTitleText.textFill.color = new vec4(
         COL_DRIFTER.r, COL_DRIFTER.g, COL_DRIFTER.b, 1
       );
@@ -706,7 +985,9 @@ export class LumiCatchManager extends BaseScriptComponent {
         const t = this.startButtonText.getSceneObject().getTransform();
         t.setLocalPosition(new vec3(0, 2, -this.hudDistanceCm + 2));
         t.setLocalScale(new vec3(0.8, 0.8, 0.8));
-        this.startButtonText.text = this.startButtonLabel;
+        this.startButtonText.text = this.roundOver
+          ? 'PLAY AGAIN'
+          : this.startButtonLabel;
         this.startButtonText.textFill.color = new vec4(0.02, 0.06, 0.08, 1);
 
         let press = 0;
@@ -728,13 +1009,11 @@ export class LumiCatchManager extends BaseScriptComponent {
     }
   }
 
-  // ---------------- Sense strand ----------------
+  // ---------------- Readouts ----------------
   //
-  // A drift of bioluminescent motes low in the view, not a bar. How far the
-  // glow reaches along them is how alert the shoal has become; a bright wave
-  // runs their length the instant a swing is sensed. Built from the creature
-  // prefab itself, so the strand is literally made of the same light as the
-  // jellyfish, and so it needs no scene objects and no Inspector wiring.
+  // Four small pieces of text, each with exactly one job. They are children of
+  // the camera and are placed by script every frame, because editor-side
+  // transforms on camera children do not survive a reload.
 
   /** The shoal's mood as a colour, borrowed from the creatures themselves. */
   private moodColour(): vec4 {
@@ -743,56 +1022,10 @@ export class LumiCatchManager extends BaseScriptComponent {
     return COL_DRIFTER;
   }
 
-  private buildHud() {
-    if (!this.creaturePrefab || !this.camera) return;
-    const parent = this.camera.getSceneObject();
-
-    for (let i = 0; i < this.hudMoteCount; i++) {
-      const mote = this.creaturePrefab.instantiate(parent);
-      const visual = this.findVisual(mote);
-      let mat: Material = null;
-      if (visual && visual.mainMaterial) {
-        mat = visual.mainMaterial.clone();
-        // Real transparency rather than fading towards black. Depth writing
-        // off so overlapping motes blend instead of punching holes in
-        // each other.
-        mat.mainPass.blendMode = BlendMode.Normal;
-        mat.mainPass.depthWrite = false;
-        visual.mainMaterial = mat;
-      }
-      this.motes.push(mote);
-      this.moteMats.push(mat);
-    }
-
-    print(
-      'LumiCatch: built ' + this.motes.length + ' sense motes, ' +
-      this.moteMats.filter((m) => m !== null).length + ' with their own material'
-    );
-  }
-
-  /** One-shot report so an invisible strand can be diagnosed from the log. */
-  private reportHud() {
-    if (this.motes.length === 0) {
-      print('LumiCatch: HUD has no motes. creaturePrefab or camera was missing.');
-      return;
-    }
-    const t = this.motes[0].getTransform();
-    const wp = t.getWorldPosition();
-    const ws = t.getWorldScale();
-    const camPos = this.camera.getTransform().getWorldPosition();
-    const toMote = wp.sub(camPos);
-    const ahead = toMote.normalize().dot(this.camForward());
-    print(
-      'LumiCatch: mote 0 world scale ' + ws.x.toFixed(2) +
-      ' cm, ' + toMote.length.toFixed(0) + ' cm away, ' +
-      (ahead > 0 ? 'IN FRONT' : 'BEHIND (flip hudDistanceCm)')
-    );
-  }
-
   /**
-   * How far the glow reaches, 0 to 1. Off the board when connected; in
-   * simulate mode a local stand-in, so the strand still responds to how you
-   * are playing while there is no hardware attached.
+   * How alert the shoal is, 0 to 1. Off the board when connected; in simulate
+   * mode a local stand-in, so the readouts respond to how you are playing
+   * while there is no hardware attached.
    */
   private hudLevel(): number {
     if (!this.simulate) return this.diffLevel;
@@ -804,106 +1037,144 @@ export class LumiCatchManager extends BaseScriptComponent {
     return Math.max(0, Math.min(1, hits / this.simOutcomes.length));
   }
 
-  /** Send a wave down the strand. */
-  private fireWave() {
-    this.pulseT = 0;
-  }
-
   /** The board has seen a swing coming. */
   private onPredicted(etaMs: number) {
-    this.fireWave();
-    this.moodLabel = 'sensed  +' + Math.round(etaMs) + 'ms';
-    this.moodFadeT = 0;
+    this.predictLabel = 'SENSED  ' + Math.round(etaMs) + 'ms';
+    this.predictFlashT = 0;
   }
 
   private updateHud(dt: number) {
-    const n = this.motes.length;
-    if (n === 0) return;
+    if (!this.camera) return;
 
+    // Readouts belong to play, not to the start or result screen.
+    const showGame = !this.requireStart || (this.started && !this.roundOver);
     const col = this.moodColour();
     const half = this.hudWidthCm * 0.5;
-    const reach = Math.max(0.04, this.hudLevel()) * n;
+    // The bottom row of readouts. This used to be measured down from the
+    // strand's droop; with the strand gone it is a plain offset, chosen to
+    // leave the row exactly where players were already used to seeing it.
+    const rowY = this.hudYCm - 9.5;
 
-    // Wave position along the strand, negative when idle.
-    let wave = -1;
-    if (this.pulseT >= 0) {
-      this.pulseT += dt;
-      const p = this.pulseT / this.pulseTravelS;
-      if (p >= 1) this.pulseT = -1;
-      else wave = p * n;
-    }
-
-    for (let i = 0; i < n; i++) {
-      const f = n === 1 ? 0.5 : i / (n - 1);
-      const x = -half + this.hudWidthCm * f;
-
-      // Shallow droop, so it hangs like a strand rather than ruling a line.
-      const across = 2 * f - 1;
-      const droop = -this.hudArcCm * (1 - across * across);
-      const bob = Math.sin(this.elapsed * 1.1 + i * 0.7) * 0.45;
-
-      // Soft edge instead of a hard step, so the glow tapers off.
-      const lit = Math.max(0, Math.min(1, reach - i));
-
-      // The wave flares each mote as it passes.
-      let flare = 0;
-      if (wave >= 0) {
-        const d = Math.abs(wave - i);
-        if (d < 1.8) {
-          const k = 1 - d / 1.8;
-          flare = k * k;
-        }
-      }
-
-      const size =
-        this.hudMoteBaseCm +
-        (this.hudMoteLitCm - this.hudMoteBaseCm) * Math.min(1, lit + flare);
-
-      const t = this.motes[i].getTransform();
-      t.setLocalPosition(
-        new vec3(x, this.hudYCm + droop + bob, -this.hudDistanceCm)
-      );
-      t.setLocalScale(new vec3(size, size, size));
-
-      const mat = this.moteMats[i];
-      if (mat) {
-        const toWhite = Math.min(1, flare * 1.3);
-        mat.mainPass.baseColor = new vec4(
-          col.r + (1 - col.r) * toWhite,
-          col.g + (1 - col.g) * toWhite,
-          col.b + (1 - col.b) * toWhite,
-          Math.min(1, 0.28 + 0.62 * lit + 0.8 * flare)
+    // ---- mood, as a face plus a word, bottom left ----
+    if (this.moodFaceText) {
+      const o = this.moodFaceText.getSceneObject();
+      o.enabled = showGame;
+      if (showGame) {
+        const t = o.getTransform();
+        t.setLocalPosition(
+          new vec3(-half + 4, rowY, -this.hudDistanceCm)
         );
+        t.setLocalScale(new vec3(0.62, 0.62, 0.62));
+        const face =
+          this.mood === MOOD_SPOOKED ? this.moodFaceSpooked
+          : this.mood === MOOD_CURIOUS ? this.moodFaceCurious
+          : this.moodFaceCalm;
+        const word =
+          this.mood === MOOD_SPOOKED ? 'SPOOKED'
+          : this.mood === MOOD_CURIOUS ? 'CURIOUS' : 'CALM';
+        this.moodFaceText.text = face + '  ' + word;
+        this.moodFaceText.textFill.color = new vec4(col.r, col.g, col.b, 1);
       }
     }
 
-    // A whisper under the strand, only when something changed, fading out so
-    // the view stays clear for the creatures.
-    if (this.moodText) {
-      const mt = this.moodText.getSceneObject().getTransform();
-      mt.setLocalPosition(
-        new vec3(0, this.hudYCm - this.hudArcCm - 7, -this.hudDistanceCm)
-      );
-      mt.setLocalScale(
-        new vec3(this.moodScale, this.moodScale, this.moodScale)
-      );
-
+    // ---- the trajectory model firing, bottom right, flashes and fades ----
+    if (this.predictFlashText) {
+      const o = this.predictFlashText.getSceneObject();
       let k = 0;
-      if (this.moodFadeT >= 0) {
-        this.moodFadeT += dt;
-        if (this.moodFadeT >= this.moodHoldS) {
-          this.moodFadeT = -1;
-        } else {
-          const p = this.moodFadeT / this.moodHoldS;
-          k = p < 0.12 ? p / 0.12 : 1 - (p - 0.12) / 0.88;
+      if (this.predictFlashT >= 0) {
+        this.predictFlashT += dt;
+        if (this.predictFlashT >= 1.1) this.predictFlashT = -1;
+        else {
+          const p = this.predictFlashT / 1.1;
+          k = p < 0.08 ? p / 0.08 : 1 - (p - 0.08) / 0.92;
         }
       }
-      this.moodText.text = this.moodLabel;
-      this.moodText.textFill.color = new vec4(col.r, col.g, col.b, k);
+      o.enabled = showGame && k > 0.01;
+      if (o.enabled) {
+        const t = o.getTransform();
+        t.setLocalPosition(
+          new vec3(half - 4, rowY, -this.hudDistanceCm)
+        );
+        t.setLocalScale(new vec3(0.58, 0.58, 0.58));
+        this.predictFlashText.text = this.predictLabel;
+        // White, so it is unmistakably not the mood colour.
+        this.predictFlashText.textFill.color = new vec4(1, 1, 1, k);
+      }
     }
 
-    // Score sits above the strand, script owned like everything else.
+    // ---- what you just caught, large, centre, fades upward ----
+    if (this.catchPopupText) {
+      const o = this.catchPopupText.getSceneObject();
+      let k = 0;
+      let rise = 0;
+      if (this.catchPopT >= 0) {
+        this.catchPopT += dt;
+        if (this.catchPopT >= 1.3) this.catchPopT = -1;
+        else {
+          const p = this.catchPopT / 1.3;
+          k = p < 0.1 ? p / 0.1 : 1 - (p - 0.1) / 0.9;
+          rise = p * 6;
+        }
+      }
+      o.enabled = showGame && k > 0.01;
+      if (o.enabled) {
+        const t = o.getTransform();
+        t.setLocalPosition(new vec3(0, 6 + rise, -this.hudDistanceCm));
+        t.setLocalScale(new vec3(1.15, 1.15, 1.15));
+        this.catchPopupText.text = this.catchLabel;
+        const gold = this.catchLabel.indexOf('RARE') >= 0
+                  || this.catchLabel.indexOf('COMBO') >= 0;
+        const c = gold ? COL_LUMEN : COL_DRIFTER;
+        this.catchPopupText.textFill.color = new vec4(c.r, c.g, c.b, k);
+      }
+    }
+
+    // ---- a small label so the strand is not a mystery ----
+    if (this.difficultyLabelText) {
+      const o = this.difficultyLabelText.getSceneObject();
+      o.enabled = showGame;
+      if (showGame) {
+        const t = o.getTransform();
+        t.setLocalPosition(
+          new vec3(0, this.hudYCm + 4.5, -this.hudDistanceCm)
+        );
+        t.setLocalScale(new vec3(0.42, 0.42, 0.42));
+        this.difficultyLabelText.text =
+          'SHOAL ALERTNESS  ' + Math.round(this.hudLevel() * 100) + '%';
+        this.difficultyLabelText.textFill.color =
+          new vec4(col.r, col.g, col.b, 0.75);
+      }
+    }
+
+    // The whispered mood line ('the shoal scatters') used to sit here. It said
+    // the same thing as the mood face two lines above and now shared its row,
+    // so it was cut rather than left to overlap.
+
+    // Score sits above the readout row, script owned like everything else.
     if (this.scoreText) {
+      // Score and clock on one line, so there is only one thing to read.
+      if (this.started && this.roundSeconds > 0) {
+        // A live chain sits between the score and the clock, with the dots
+        // draining as its window closes. Nothing is shown when no chain is
+        // running, so the line stays quiet most of the time.
+        let mid = '     ';
+        if (this.comboCount > 1 && this.elapsed < this.comboUntil) {
+          const left = (this.comboUntil - this.elapsed) / this.comboWindowS;
+          let dots = '';
+          const ticks = Math.max(1, Math.ceil(left * 3));
+          for (let i = 0; i < ticks; i++) dots += '.';
+          mid =
+            '   x' + Math.min(this.comboCount, this.comboMax) + ' ' + dots + '   ';
+        }
+        this.scoreText.text =
+          'Score  ' + this.score + mid + Math.ceil(this.roundLeft) + 's';
+        // Gold for the last ten seconds, and for the whole bloom, so the
+        // finale is visible on the score line as well as felt.
+        const urgent = this.roundLeft <= 10 || this.bloomActive;
+        const c = urgent ? COL_LUMEN : COL_DRIFTER;
+        const k = urgent ? 0.7 + 0.3 * Math.sin(this.elapsed * 7.0) : 1.0;
+        this.scoreText.textFill.color = new vec4(c.r, c.g, c.b, k);
+      }
       const st = this.scoreText.getSceneObject().getTransform();
       st.setLocalPosition(new vec3(0, this.hudYCm + 11, -this.hudDistanceCm));
       st.setLocalScale(
@@ -989,17 +1260,13 @@ export class LumiCatchManager extends BaseScriptComponent {
 
     if (m === MOOD_SPOOKED) {
       this.moodUntil = this.elapsed + this.spookSeconds;
-      this.moodLabel = 'the shoal scatters';
       print('LumiCatch: spooked, the schools are grouping tight and backing off');
     } else if (m === MOOD_CURIOUS) {
       this.moodUntil = this.elapsed + this.curiousSeconds;
-      this.moodLabel = 'they drift closer';
       print('LumiCatch: curious, the schools are dispersing and coming closer');
     } else {
-      this.moodLabel = 'the water settles';
       print('LumiCatch: the schools have settled');
     }
-    this.moodFadeT = 0;
 
     this.rehomeForMood(camPos);
   }
@@ -1047,6 +1314,179 @@ export class LumiCatchManager extends BaseScriptComponent {
     return null;
   }
 
+  /** Gather the world position of every bone at or below an object. */
+  private collectBones(obj: SceneObject, out: vec3[]) {
+    out.push(obj.getTransform().getWorldPosition());
+    const n = obj.getChildrenCount();
+    for (let i = 0; i < n; i++) this.collectBones(obj.getChild(i), out);
+  }
+
+  /** Gather the world position of every leaf bone below an object. */
+  private collectTips(obj: SceneObject, out: vec3[]) {
+    const n = obj.getChildrenCount();
+    if (n === 0) {
+      out.push(obj.getTransform().getWorldPosition());
+      return;
+    }
+    for (let i = 0; i < n; i++) this.collectTips(obj.getChild(i), out);
+  }
+
+  /** Find a descendant by exact name, depth first. */
+  private findChildNamed(obj: SceneObject, name: string): SceneObject {
+    if (obj.name === name) return obj;
+    const n = obj.getChildrenCount();
+    for (let i = 0; i < n; i++) {
+      const found = this.findChildNamed(obj.getChild(i), name);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  /** Find the first AnimationPlayer on an object or anywhere below it. */
+  private findAnimation(obj: SceneObject): AnimationPlayer {
+    const own = obj.getComponent('Component.AnimationPlayer');
+    if (own) return own;
+    const n = obj.getChildrenCount();
+    for (let i = 0; i < n; i++) {
+      const found = this.findAnimation(obj.getChild(i));
+      if (found) return found;
+    }
+    return null;
+  }
+
+  /**
+   * Start the model's own swim cycle at a random point in the loop.
+   *
+   * The imported glTF already autoplays and loops, so this is not about
+   * starting it. It is about breaking the lockstep: without it all fourteen
+   * jellyfish pulse on exactly the same frame, which reads as a screensaver
+   * rather than a shoal. Harmless when the prefab has no animation at all,
+   * which is how the old sphere prefab behaved.
+   */
+  private desyncAnimation(obj: SceneObject) {
+    const player = this.findAnimation(obj);
+    if (!player) return;
+    const clips = player.clips;
+    if (!clips || clips.length === 0) return;
+    const clip = clips[0];
+    // The model's swim cycle is 4.12 s, which is graceful and, at 20 cm on a
+    // 27 degree display, imperceptible: measured, the whole skeleton moves
+    // about 1.6 cm in 1.6 s. Speeding the clip up is what makes the creature
+    // read as alive rather than as a static prop.
+    if (this.swimSpeed > 0) clip.playbackSpeed = this.swimSpeed;
+    player.playClipAt(clip.name, Math.random() * Math.max(0.01, clip.end));
+  }
+
+  /**
+   * One-shot log of how big a creature actually ends up on screen.
+   *
+   * Worth keeping because creature size is not something you can read off the
+   * source: it is the prefab's own scale chain times creatureScale, and an
+   * imported model brings its own units with it. This prints the real answer
+   * in centimetres so the number can be tuned against something measured
+   * rather than guessed.
+   */
+  private reportCreatureSize() {
+    if (this.creatures.length === 0) {
+      print('LumiCatch: no creatures to measure.');
+      return;
+    }
+    // Measured from the skeleton, not from worldAabbMin/Max. On a skinned mesh
+    // those return the rest pose transformed by the object matrix, which for
+    // this model is a flat wide box bearing no relation to the upright
+    // creature actually on screen. The bones are posed by the animation, so
+    // their spread is the real size. It runs slightly small, since the mesh
+    // skins a little beyond the bones, but it is honest.
+    const root = this.creatures[0].obj;
+    const joint = this.findChildNamed(root, '_rootJoint');
+    if (!joint) {
+      print('LumiCatch: no _rootJoint, cannot measure.');
+      return;
+    }
+    const pts: vec3[] = [];
+    this.collectBones(joint, pts);
+    let lo = pts[0], hi = pts[0];
+    for (let i = 1; i < pts.length; i++) {
+      lo = new vec3(Math.min(lo.x, pts[i].x), Math.min(lo.y, pts[i].y),
+                    Math.min(lo.z, pts[i].z));
+      hi = new vec3(Math.max(hi.x, pts[i].x), Math.max(hi.y, pts[i].y),
+                    Math.max(hi.z, pts[i].z));
+    }
+    print(
+      'LumiCatch: creature spans ' +
+      (hi.x - lo.x).toFixed(1) + ' x ' +
+      (hi.y - lo.y).toFixed(1) + ' x ' +
+      (hi.z - lo.z).toFixed(1) + ' cm across ' + pts.length +
+      ' bones at creatureScale ' + this.creatureScale.toFixed(3) +
+      (this.findAnimation(root) ? ', animated' : ', static')
+    );
+
+    // Is the skeleton actually MOVING, or just posed?
+    //
+    // 'The AnimationPlayer exists and autoplays' is not the same claim as 'the
+    // creature visibly animates'. The bones are driven regardless of what the
+    // material does, so sampling them twice separates the two possible faults:
+    // a still skeleton means the animation is not running, while a skeleton
+    // that moves under a mesh that does not is a skinning problem in the
+    // material.
+    const span = new vec3(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z);
+    if (this.firstSpan === null) {
+      this.firstSpan = span;
+      const again = this.createEvent('DelayedCallbackEvent');
+      again.bind(() => this.reportCreatureSize());
+      again.reset(1.6);
+    } else {
+      const d =
+        Math.abs(span.x - this.firstSpan.x) +
+        Math.abs(span.y - this.firstSpan.y) +
+        Math.abs(span.z - this.firstSpan.z);
+      print(
+        'LumiCatch: skeleton moved ' + d.toFixed(2) +
+        ' cm over 1.6 s  ->  ' +
+        (d > 0.5
+          ? 'BONES ARE ANIMATING'
+          : 'BONES ARE STILL, the clip is not playing')
+      );
+    }
+
+    // Which way is the creature actually pointing?
+    //
+    // Two earlier attempts at this both lied, and both lied confidently.
+    //
+    // The bounding box was the first. On a SKINNED mesh worldAabbMin/Max
+    // reports the rest pose transformed by the object matrix, not the vertices
+    // actually being drawn, so it happily reported a tall creature while the
+    // screen showed a horizontal one.
+    //
+    // A single pair of bones was the second. Bone_00 to Bone.001_end_010 is a
+    // short bone inside the bell, not the body axis, so it measured a real
+    // direction that meant nothing.
+    //
+    // This one uses the skeleton's extremities: every bone whose name ends in
+    // a tip, averaged, relative to the root joint. That is the direction the
+    // tentacles actually hang, and it is what the eye reads as 'which way up'.
+    const tips: vec3[] = [];
+    this.collectTips(joint, tips);
+    if (tips.length === 0) {
+      print('LumiCatch: found no tip bones, cannot check orientation.');
+      return;
+    }
+    let sum = new vec3(0, 0, 0);
+    for (let i = 0; i < tips.length; i++) sum = sum.add(tips[i]);
+    const centre = sum.uniformScale(1 / tips.length);
+    const d = centre.sub(joint.getTransform().getWorldPosition()).normalize();
+    const ax = Math.abs(d.x), ay = Math.abs(d.y), az = Math.abs(d.z);
+    const axis =
+      ay > ax && ay > az
+        ? (d.y < 0 ? 'Y  UPRIGHT (tentacles down)' : 'Y  UPSIDE DOWN')
+        : ax > az ? 'X  ON ITS SIDE' : 'Z  ON ITS SIDE';
+    print(
+      'LumiCatch: body axis root->tentacles = (' +
+      d.x.toFixed(2) + ', ' + d.y.toFixed(2) + ', ' + d.z.toFixed(2) +
+      ')  from ' + tips.length + ' tips  ->  ' + axis
+    );
+  }
+
   /**
    * Colour a creature by kind. The material is cloned once per kind, because
    * every instance shares the prefab's material asset and tinting that
@@ -1063,7 +1503,12 @@ export class LumiCatchManager extends BaseScriptComponent {
     }
 
     if (!this.kindMaterials[kind]) {
-      const base = visual.mainMaterial;
+      // Prefer the neon material over whatever the model shipped with. An
+      // imported glTF brings its own PBR material, which lights realistically
+      // and turns the shoal into grey plastic; the whole look depends on these
+      // being unlit and self coloured. Falls back to the prefab's own material
+      // when the input is unset, which is how the sphere prefab worked.
+      const base = this.neonMaterial || visual.mainMaterial;
       if (!base) return;
       const cloned = base.clone();
       cloned.mainPass.baseColor =
@@ -1072,6 +1517,15 @@ export class LumiCatchManager extends BaseScriptComponent {
           : kind === KIND_SKITTISH
           ? COL_SKITTISH
           : COL_DRIFTER;
+      // A sphere never showed you its inside, so backface culling was free. A
+      // bell does: swim under one with culling on and the jellyfish vanishes.
+      // The source model is doubleSided for exactly this reason.
+      cloned.mainPass.twoSided = true;
+      // Translucent, and not writing depth, so the bell and the tentacles
+      // behind it blend into each other instead of the nearest surface
+      // painting a flat silhouette over everything behind it.
+      cloned.mainPass.blendMode = BlendMode.Normal;
+      cloned.mainPass.depthWrite = false;
       this.kindMaterials[kind] = cloned;
     }
 
@@ -1088,6 +1542,64 @@ export class LumiCatchManager extends BaseScriptComponent {
 
   private pointsFor(kind: number): number {
     return kind === KIND_LUMEN ? 3 : 1;
+  }
+
+  /** Throw a handful of motes off a catch. */
+  private spawnBurst(pos: vec3) {
+    if (!this.burstPrefab || this.burstMotes <= 0) return;
+    for (let i = 0; i < this.burstMotes; i++) {
+      const o = this.burstPrefab.instantiate(this.creatureRoot());
+      const dir = new vec3(
+        Math.random() - 0.5,
+        Math.random() - 0.5,
+        Math.random() - 0.5
+      ).normalize();
+      o.getTransform().setWorldPosition(pos);
+      this.motes.push({ obj: o, t: 0, from: pos, dir: dir });
+    }
+  }
+
+  /**
+   * Fly caught creatures into the net, and scatter the burst motes.
+   *
+   * This is the whole of the catch payoff. Before it, a catch was a creature
+   * calling destroy() on itself: the single most important moment in the game
+   * had the least feedback in it.
+   */
+  private updateCaught(dt: number, camPos: vec3, fwd: vec3) {
+    const target = camPos.add(fwd.uniformScale(this.catchFlyToCm));
+    for (let i = this.caught.length - 1; i >= 0; i--) {
+      const e = this.caught[i];
+      e.t += dt;
+      const p = Math.min(1, e.t / Math.max(0.01, this.catchFlyS));
+      const t = e.obj.getTransform();
+      // Accelerating in, so it reads as being scooped rather than drifting.
+      t.setWorldPosition(vec3.lerp(e.from, target, p * p));
+      const s = e.scale * (1 - p);
+      t.setWorldScale(new vec3(s, s, s));
+      if (p >= 1) {
+        e.obj.destroy();
+        this.caught.splice(i, 1);
+      }
+    }
+
+    for (let i = this.motes.length - 1; i >= 0; i--) {
+      const m = this.motes[i];
+      m.t += dt;
+      const p = Math.min(1, m.t / Math.max(0.01, this.burstLifeS));
+      // Fast out, easing to a stop, which is how a spark of light behaves.
+      const out = 1 - (1 - p) * (1 - p);
+      const t = m.obj.getTransform();
+      t.setWorldPosition(
+        m.from.add(m.dir.uniformScale(this.burstSpreadCm * out))
+      );
+      const s = this.burstMoteScale * (1 - p);
+      t.setWorldScale(new vec3(s, s, s));
+      if (p >= 1) {
+        m.obj.destroy();
+        this.motes.splice(i, 1);
+      }
+    }
   }
 
   private canFlee(c: Creature): boolean {
@@ -1116,6 +1628,7 @@ export class LumiCatchManager extends BaseScriptComponent {
 
     const obj = prefab.instantiate(this.creatureRoot());
     this.tint(obj, kind);
+    this.desyncAnimation(obj);
 
     const camT = this.camera.getTransform();
     const camPos = camT.getWorldPosition();
@@ -1169,6 +1682,8 @@ export class LumiCatchManager extends BaseScriptComponent {
     const worldUp = new vec3(0, 1, 0);
 
     this.updateCloaking();
+    this.updateCaught(dt, camPos, fwd);
+    this.updateRound(dt);
     this.updateStartScreen(dt);
     this.updateHud(dt);
 
@@ -1311,9 +1826,44 @@ export class LumiCatchManager extends BaseScriptComponent {
       }
     }
 
+    this.checkWalls(camPos);
+
+    // Keep everything inside the play volume. Done after separation so a push
+    // cannot shove a creature through a wall, and before the transforms are
+    // applied so nothing is ever drawn out of bounds even for one frame.
+    if (this.useRoomBounds && this.roomCentre) {
+      for (let i = 0; i < this.creatures.length; i++) {
+        const c = this.creatures[i];
+        const flat = new vec3(
+          c.pos.x - this.roomCentre.x,
+          0,
+          c.pos.z - this.roomCentre.z
+        );
+        const r = flat.length;
+        if (r > this.roomRadiusCm) {
+          const pulled = flat.uniformScale(this.roomRadiusCm / r);
+          c.pos = new vec3(
+            this.roomCentre.x + pulled.x,
+            c.pos.y,
+            this.roomCentre.z + pulled.z
+          );
+          // Re-home it too, or it swims straight back into the wall.
+          c.home = c.pos;
+        }
+        const top = this.roomCentre.y + this.roomCeilingCm;
+        const bottom = this.roomCentre.y - this.roomFloorCm;
+        if (c.pos.y > top) c.pos = new vec3(c.pos.x, top, c.pos.z);
+        if (c.pos.y < bottom) c.pos = new vec3(c.pos.x, bottom, c.pos.z);
+      }
+    }
+
     // Apply transforms once positions have settled. Yaw spin plus bell pulse,
     // no billboarding: a wrong facing axis is invisible in the editor and
     // obvious on video.
+    const upright = quat.angleAxis(
+      (this.modelUprightDeg * Math.PI) / 180,
+      new vec3(1, 0, 0)
+    );
     for (let i = 0; i < this.creatures.length; i++) {
       const c = this.creatures[i];
       const t = c.obj.getTransform();
@@ -1324,9 +1874,22 @@ export class LumiCatchManager extends BaseScriptComponent {
         c.scale *
         (1 + Math.sin(this.elapsed * pulseSpeed + c.seed) * this.pulseAmount);
       t.setWorldScale(new vec3(s, s, s));
-      t.setWorldRotation(
-        quat.angleAxis(this.elapsed * this.spinRate + c.seed, worldUp)
+      // Yaw, then a fixed lean, then stand the model up. Order matters: the
+      // upright correction has to sit innermost, or the creature tips over as
+      // it turns instead of rotating about its own vertical axis.
+      //
+      // The lean is derived from the creature's seed rather than stored, so it
+      // is constant for that creature but different between them.
+      let rot = quat.angleAxis(
+        this.elapsed * this.spinRate + c.seed,
+        worldUp
       );
+      if (this.tiltVarietyDeg > 0) {
+        const lean = (Math.sin(c.seed * 12.9898) * this.tiltVarietyDeg * Math.PI) / 180;
+        const leanAxis = new vec3(Math.cos(c.seed * 4.1), 0, Math.sin(c.seed * 4.1));
+        rot = rot.multiply(quat.angleAxis(lean, leanAxis));
+      }
+      t.setWorldRotation(rot.multiply(upright));
 
       const toC2 = c.pos.sub(camPos);
       const dist2 = toC2.length;
@@ -1338,7 +1901,11 @@ export class LumiCatchManager extends BaseScriptComponent {
       }
       if (
         c.kind === KIND_DRIFTER &&
-        dist2 < this.captureRangeCm &&
+        // The sneak reach, not the lunge reach. The guarantee exists as
+        // filming insurance, so it has to promise a target you can take with
+        // the gentler swing, not one that needs a committed lunge.
+        dist2 <
+          (this.useSwingQuality ? this.sneakRangeCm : this.captureRangeCm) &&
         dir2.dot(fwd) >= this.captureConeDot
       ) {
         easyReady = true;
@@ -1440,20 +2007,37 @@ export class LumiCatchManager extends BaseScriptComponent {
   // ---------------- Capture ----------------
 
   private onSwing(peak: number) {
-    // Nothing is catchable until the player has begun.
+    // Nothing is catchable until the player has begun, or after time is up.
     if (this.requireStart && !this.started) return;
+    if (this.roundOver) return;
 
     const camT = this.camera.getTransform();
     const camPos = camT.getWorldPosition();
     const fwd = this.camForward();
 
+    // Sneak or lunge. This is the one thing that turns the net from a button
+    // into an instrument: the same gesture at two different speeds now has
+    // two different reaches and two different costs.
+    const gentle = this.useSwingQuality && peak < this.gentleSwingG;
+    const reach = !this.useSwingQuality
+      ? this.captureRangeCm
+      : gentle
+      ? this.sneakRangeCm
+      : this.lungeRangeCm;
+
     let bestIdx = -1;
     let bestDist = Number.MAX_VALUE;
 
     for (let i = 0; i < this.creatures.length; i++) {
+      // A creature that is actively dodging has evaded you. Without this the
+      // flee is cosmetic: fleeDistanceCm is 32 while the reach is far longer,
+      // so a dodged creature stays well inside it and you catch it anyway.
+      const st = this.creatures[i].state;
+      if (st === ST_ALERT || st === ST_FLEE) continue;
+
       const toC = this.creatures[i].pos.sub(camPos);
       const dist = toC.length;
-      if (dist > this.captureRangeCm) continue;
+      if (dist > reach) continue;
       if (dist < 0.0001) continue;
       if (toC.normalize().dot(fwd) < this.captureConeDot) continue;
       if (dist < bestDist) {
@@ -1466,7 +2050,7 @@ export class LumiCatchManager extends BaseScriptComponent {
 
     if (bestIdx >= 0) {
       this.consecutiveMisses = 0;
-      this.capture(bestIdx);
+      this.capture(bestIdx, gentle);
     } else {
       this.consecutiveMisses++;
       print(
@@ -1486,23 +2070,51 @@ export class LumiCatchManager extends BaseScriptComponent {
         print('LumiCatch: mercy window, fleeing paused');
       }
     }
+
+    // The cost of the swing, paid whether or not it landed. Done after the
+    // capture so the creature you just took is already off the roster.
+    if (this.useSwingQuality) {
+      this.disturb(camPos, gentle ? this.sneakSpookCm : this.lungeSpookCm);
+    }
   }
 
-  private capture(idx: number) {
+  /**
+   * Wake every calm creature within reach of the noise a swing made.
+   *
+   * Woken creatures are skipped by onSwing, so this is a real cost: lunge into
+   * a cluster and miss, and you have just made the whole cluster untouchable
+   * for a couple of seconds. Respects canFlee, so the mercy window still
+   * protects a player who is struggling.
+   */
+  private disturb(camPos: vec3, radiusCm: number) {
+    if (radiusCm <= 0) return;
+    let woken = 0;
+    for (let i = 0; i < this.creatures.length; i++) {
+      const c = this.creatures[i];
+      if (c.state !== ST_DRIFT) continue;
+      if (!this.canFlee(c)) continue;
+      if (c.pos.distance(camPos) > radiusCm) continue;
+      c.state = ST_ALERT;
+      c.stateT = 0;
+      woken++;
+    }
+    if (woken > 0) {
+      print('LumiCatch: the swing disturbed ' + woken + ' creature(s)');
+    }
+  }
+
+  private capture(idx: number, gentle: boolean) {
     const c = this.creatures[idx];
     const pos = c.pos;
     const kind = c.kind;
 
+    // Off the roster at once so it cannot be caught twice, but deliberately
+    // NOT destroyed: it still has to fly into the net. updateCaught owns it
+    // from here and destroys it at the end of the flight.
     this.creatures.splice(idx, 1);
-    c.obj.destroy();
+    this.caught.push({ obj: c.obj, t: 0, from: pos, scale: c.scale });
 
-    if (this.burstPrefab) {
-      const burst = this.burstPrefab.instantiate(this.creatureRoot());
-      burst.getTransform().setWorldPosition(pos);
-      const cleanup = this.createEvent('DelayedCallbackEvent');
-      cleanup.bind(() => burst.destroy());
-      cleanup.reset(2.0);
-    }
+    this.spawnBurst(pos);
 
     if (this.captureSound) {
       // Move the emitter to where the creature was, so the spatialised chime
@@ -1524,10 +2136,30 @@ export class LumiCatchManager extends BaseScriptComponent {
       this.setMood(MOOD_SPOOKED, this.camera.getTransform().getWorldPosition());
     }
 
-    const combo = this.elapsed - this.lastCapture < 4.0;
+    // Chain. Each catch inside the window raises the multiplier rather than
+    // just setting a flat x2, so a run of quick catches is worth chasing.
+    if (this.elapsed < this.comboUntil) this.comboCount++;
+    else this.comboCount = 1;
+    this.comboUntil = this.elapsed + this.comboWindowS;
     this.lastCapture = this.elapsed;
-    this.sendHaptic(combo ? 4 : 3);
-    this.updateScore(this.score + this.pointsFor(kind) * (combo ? 2 : 1));
+
+    const chain = Math.min(this.comboCount, this.comboMax);
+    const bloom = this.bloomActive ? this.bloomMultiplier : 1;
+    const mult = chain * bloom;
+    const pts = this.pointsFor(kind) * mult;
+
+    // Tell the player what they just caught and what it was worth, or the
+    // score simply jumps by twelve with no explanation. Two short lines rather
+    // than one long one, because the display is only 27 degrees wide.
+    let what = 'CAUGHT';
+    if (kind === KIND_LUMEN) what = 'RARE';
+    else if (kind === KIND_SKITTISH) what = 'SKITTISH';
+    const head = (gentle ? 'SNEAK  ' : 'LUNGE  ') + what;
+    const tail = (mult > 1 ? 'x' + mult + '   ' : '') + '+' + pts;
+    this.catchLabel = head + '\n' + tail;
+    this.catchPopT = 0;
+    this.sendHaptic(mult > 1 ? 4 : 3);
+    this.updateScore(this.score + pts);
 
     const respawn = this.createEvent('DelayedCallbackEvent');
     respawn.bind(() => this.spawnCreature(-1));
@@ -1536,6 +2168,6 @@ export class LumiCatchManager extends BaseScriptComponent {
 
   private updateScore(v: number) {
     this.score = v;
-    if (this.scoreText) this.scoreText.text = 'Caught: ' + v;
+    if (this.scoreText) this.scoreText.text = 'Score  ' + v;
   }
 }

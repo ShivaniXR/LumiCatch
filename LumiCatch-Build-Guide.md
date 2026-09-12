@@ -45,7 +45,7 @@ pinout in a separate PDF rather than inline, so the silkscreen is the
 authority.
 
 1. Open Arduino App Lab, create a new App called `lumicatch`.
-2. Paste `phase1-imu-test.ino` from the repo root into `sketch/sketch.ino` and run it. That file is the smoke test: it checks the bus answers at 0x68, reads `WHO_AM_I` to prove it is the right chip, then prints magnitude in g and tracks the peak.
+2. Paste `diagnostics/phase1-imu-test.ino` into `sketch/sketch.ino` and run it. That file is the smoke test: it checks the bus answers at 0x68, reads `WHO_AM_I` to prove it is the right chip, then prints magnitude in g and tracks the peak.
 
 Reading the peak matters more than it looks. Magnitude in g is the exact signal
 the swing detector thresholds on **and** the trajectory model differentiates, so
@@ -137,7 +137,7 @@ sensor.
 
 Two defences, and you need both.
 
-**Firmware.** `sketch.ino` and `phase1-imu-test.ino` now watch for a magnitude
+**Firmware.** `sketch.ino` and `diagnostics/phase1-imu-test.ino` now watch for a magnitude
 of essentially zero. Gravity never goes away, so twenty dead samples in a row
 (100 ms) means the sensor slept rather than the net going weightless. It
 re-wakes automatically and prints a recovery count. Note this is a safety net,
@@ -156,7 +156,7 @@ treat connections as the primary failure mode:
 
 Build the transistor circuit on the mini breadboard exactly as in `wiring-diagram.svg`: D9 through the 1 kΩ resistor to the base, emitter to GND, motor between 3V3 and the collector, 1N4007 across the motor with its band towards the 3V3 side.
 
-Use `phase2-motor-test.ino` from the repo root. It runs three tests and then
+Use `diagnostics/phase2-motor-test.ino`. It runs three tests and then
 stops with the motor off:
 
 - **A. Three pulses.** Proves the circuit switches at all.
@@ -217,7 +217,7 @@ as the reference: 110 is soft but unmistakably present. Combo is deliberately
 built on top of Capture, because in play a combo *is* a capture plus more, so
 the haptic should say the same thing.
 
-Both `sketch.ino` and `phase2-motor-test.ino` carry the identical set, driven
+Both `sketch.ino` and `diagnostics/phase2-motor-test.ino` carry the identical set, driven
 by one `HAPTIC_GAP_MS` constant. **If taps still blur, raise it to 200.**
 
 The test now ends with a **section D** that plays the two previously confused
@@ -811,6 +811,180 @@ Verified end to end against `mock-net.py` running the real models: the Lens
 connected, received `difficulty 0.35`, and logged `swing predicted in 83.7 ms`
 followed by the confirmed swing.
 
+### What the first real playtest changed
+
+Playing the whole thing on the glasses with the net produced six complaints.
+They are worth recording because five of them were right, and the fixes are
+what turned a tech demo into a game.
+
+**1. The strand was unreadable.** *"the ui at the bottom that changes colour
+blue orange etc whats that for?"* One element was carrying four different
+meanings at once. It was split into four labelled readouts, each with one job:
+
+| Object | Input | Shows |
+|---|---|---|
+| `MoodFace` | `moodFaceText` | The shoal's state as a face plus a word: `^_^` calm, `o_o` curious, `>_<` spooked |
+| `PredictFlash` | `predictFlashText` | Fires when the trajectory model calls a swing, e.g. `SENSED  84ms` |
+| `CatchPopup` | `catchPopupText` | `RARE  COMBO  +6` on a catch, gold for rare and combo |
+| `DifficultyLabel` | `difficultyLabelText` | `SHOAL ALERTNESS  62%`, the difficulty AI made visible |
+
+The faces are set by `moodFaceCalm`, `moodFaceCurious` and `moodFaceSpooked` so
+they can be changed without touching code. All four are children of the Camera
+Object, positioned at runtime from `hudDistanceCm`, and all four are hidden
+unless `showGame` is true, so they never sit on top of the start screen.
+
+This also answers the *"make the AI visible rather than claimed"* point in the
+rubric: the prediction flash and the alertness percentage are the two models
+putting themselves on camera, without narration.
+
+**2. Fled jellyfish could still be caught.** *"even if jellyfish have run away
+and I swing in that position it says caught."* `onSwing` tested proximity
+against every creature including ones already fleeing, so a swing at empty air
+where one used to be still scored. Fixed by skipping any creature that has
+already noticed you:
+
+```ts
+const st = this.creatures[i].state;
+if (st === ST_ALERT || st === ST_FLEE) continue;
+```
+
+Being seen is now a real escape, which is also what makes the alertness number
+mean anything.
+
+**3. There was no round.** A timer was added: `roundSeconds` (60), a countdown
+on the score line that turns gold and pulses for the last ten seconds, and a
+result screen that reuses the start screen showing `SCORE  N`, `PLAY AGAIN` and
+the best score so far. Without it there was no reason to stop and nothing to
+beat, and a filmed take had no shape.
+
+**4. Score wording disagreed with the dashboard.** The Lens said `Caught:` and
+the dashboard said something else. The Lens now says `Score  N` and sends its
+score to the board with every result, so the two screens can be filmed side by
+side without contradicting each other.
+
+**5. Creatures swam into walls and furniture.** Covered under Room bounds
+below. The short version: use Lens Studio's own `WorldQueryModule`, which is
+the world mesh API, rather than inventing a geometry system.
+
+**6. The dashboard was incomprehensible.** Covered under App Lab hosting the
+dashboard, above.
+
+### Making it a game
+
+Everything above made it work. None of it made it fun. A second playtest pass
+asked the blunt question, and the honest answer was that the loop had no
+decision in it and no payoff at the end of one. Two things were being wasted
+rather than missing.
+
+**The swing had no skill in it.** `onSwing(peak)` had always received the
+swing's peak in g from the firmware, and used it in exactly one place: a
+`print`. A 3.6 g flick and a 7 g lunge did the same thing, which made the net,
+the one genuinely novel input in the project, an expensive button.
+
+**The catch had the least feedback of any moment in the game.** `capture()`
+called `obj.destroy()` and the creature blinked out. `burstPrefab` had been
+sitting unassigned since it was added, so there was no burst either. The single
+most important event was a disappearance.
+
+#### Sneak or lunge
+
+How hard you swing now decides both reach and cost:
+
+| | reach | who notices |
+|---|---|---|
+| sneak, under `gentleSwingG` (4.6 g) | 85 cm | only within 40 cm |
+| lunge, over it | 170 cm | everything within 120 cm |
+
+A woken creature is skipped by `onSwing`, so this is a real price: lunge into a
+cluster and miss, and you have made the whole cluster untouchable for a couple
+of seconds. `disturb()` respects `canFlee`, so the mercy window still protects a
+player who is struggling, and `useSwingQuality` turns the whole thing off and
+restores the old flat reach if a take is going badly.
+
+The easy-target guarantee was repointed at the **sneak** reach. It exists as
+filming insurance, so it has to promise a creature you can take with the gentle
+swing rather than one that needs a committed lunge.
+
+**These thresholds must be re-measured on the assembled net.** Walking already
+reads 2 to 3 g, and the gentle band sits above that rather than below it, so
+'gentle' and 'hard' have to stay reliably distinguishable while you are moving
+and with the power bank fitted.
+
+#### The catch, made to land
+
+The creature is now taken off the roster but not destroyed. `updateCaught()`
+flies it into the net on an accelerating curve while shrinking it to nothing,
+and `spawnBurst()` throws off six motes that scatter and fade. The motes are
+instances of the **old sphere creature prefab**, so this cost no new assets at
+all.
+
+#### Chains, and the bloom
+
+The combo existed as an invisible flat x2. It now escalates to `comboMax` (4)
+and shows on the score line between the score and the clock, with its dots
+draining as the window closes, and nothing shown at all when no chain is live.
+
+The bloom is the finale: for the last `bloomSeconds` (15) of the round, six
+extra creatures arrive and everything is worth double. It announces itself with
+its own popup and the rare-creature haptic, and the score line turns gold for
+the whole of it rather than only the last ten seconds. This one is mostly for
+the film, which needs a climax rather than a stop.
+
+Verified by forcing two catches a second apart in preview:
+
+```
+after 1st  score=1 combo=1 label="SNEAK  CAUGHT | +1" inflight=1 motes=6
+after 2nd  score=3 combo=2 label="LUNGE  SKITTISH | x2   +2" inflight=1
+```
+
+and by shortening the round to 12 s with a 6 s bloom:
+
+```
+LumiCatch: game started, 14 creatures live, readouts and score on
+LumiCatch: bloom, +6 creatures, x2 points
+LumiCatch: round over, score 0
+```
+
+#### A bug the bloom exposed
+
+`beginGame()` was only ever reachable from the start button. So
+`requireStart = false` silently disabled the round timer, the bloom and the
+score reset: the creatures drifted and swings scored, but no round ever ran.
+
+That is exactly the fallback you would reach for if the start button misbehaved
+on the day, which makes it the worst possible place for a dormant bug.
+`updateRound()` now begins the round itself when the gate is off.
+
+### The sense strand, and why it was cut
+
+The first version of the readouts was a 'sense strand': an arc of eleven
+glowing motes low in the view, built at runtime from the creature prefab so it
+was literally made of the same light as the jellyfish. Its colour was the
+shoal's mood, how far the glow reached was the difficulty, and a bright wave ran
+its length whenever the board predicted a swing.
+
+It was the nicest looking thing in the project and it was cut, in two stages.
+
+First it was split into four labelled readouts, because one element carrying
+three meanings at once could not be read in play. Then the strand itself went,
+because once mood, difficulty and prediction each had a label, the strand was
+saying nothing that was not already said in words, and a 27 degree display has
+no room for decoration. That removed about 150 lines, eleven runtime objects
+and eleven cloned materials.
+
+Worth recording as a design lesson: *the strand was not removed because it was
+broken.* It worked exactly as designed. It was removed because 'what is that
+for?' is a fatal question for a HUD element, and no amount of polish answers it.
+
+There was a second, accidental reason it had to go. The motes were instantiated
+from `creaturePrefab`, which was fine when that prefab was a sphere. The moment
+the prefab became an imported jellyfish model, the strand would have become
+eleven tiny animated jellyfish hanging in a row under the score.
+
+The whispered mood line ('the shoal scatters') went at the same time. It had sat
+just under the strand; with the strand gone it shared a row with the mood face,
+which already showed the same state permanently rather than for two seconds.
+
 ### Room-wide spawning
 
 `spawnAllAround` (default on) spreads creatures through the full 360 degrees
@@ -830,6 +1004,206 @@ behaviour returns, along with the behind-you leash.
 The Guarantee still keeps one Drifter in front of you, and the first creature
 still starts inside the capture zone. Those are filming insurance and they
 survive the change to room-wide spawning.
+
+### Swapping the spheres for a real jellyfish model
+
+The creatures started as unlit spheres, which was the right call while the game
+logic was being built and a deliberate one: a sphere has no orientation, no
+animation and no import surprises. Once everything else worked, a real model
+was dropped in: `simple_jellyfish.glb`, a Sketchfab export.
+
+**Check the model before trusting it.** Reading the glTF directly, rather than
+importing and hoping:
+
+| | |
+|---|---|
+| Vertices | 557 |
+| Triangles | 1110 |
+| Skin joints | 14 |
+| Animations | 1, `StandardMoving`, 4.12 s, LINEAR |
+| Textures | none |
+| Material | `KHR_materials_pbrSpecularGlossiness`, translucent, doubleSided |
+
+1110 triangles means fourteen of them is nothing, so the creature count did not
+have to change.
+
+**Importing.** Copy the `.glb` into `Lumicatch/Assets/` and Lens Studio picks it
+up on its own. It arrives as an `ObjectPrefab`, which is the same type the
+`creaturePrefab` input already took, so instantiation needed no code change at
+all. Inside it, Lens Studio builds:
+
+- an **`AnimationPlayer`** on `Sketchfab_Scene`, with `autoplay` already true and the clip already looping, so the swim cycle needs no script to start it
+- a **`Skin`** component driving the 14 bones
+- a **`RenderMeshVisual`** several levels down, on `Object_21`
+
+That last point matters. The existing `findVisual()` already searched
+recursively, so tinting kept working; a version that only looked at the root
+object would have silently failed to colour anything.
+
+**Keeping the neon.** The imported model brings its own PBR material, which
+lights realistically and turns the shoal into grey plastic. A new
+`neonMaterial` input takes the existing unlit `JellyfishGlow.mat`, and `tint()`
+clones and colours that instead of the model's own material, so the cyan,
+violet and gold are exactly as before. The clone is also set `twoSided`,
+because a sphere never showed you its inside and a bell does: swim under one
+with backface culling on and the jellyfish disappears.
+
+**Three things the model needed that a sphere never did.**
+
+*It looked like it was lying on its side, and the fix was to stop 'fixing' it.*
+**The correct value of `modelUprightDeg` is 0.** Lens Studio's importer already
+resolves the glTF axis chain, and the prefab arrives upright.
+
+That took three wrong values to establish, and the reason is worth more than the
+answer. Two separate measurements both reported the creature was upright while
+it was plainly horizontal on screen:
+
+- **`worldAabbMin()` / `worldAabbMax()`.** On a **skinned** mesh these return the
+  **rest pose** bounds transformed by the object matrix, not the vertices being
+  drawn. For this model the rest pose is a flat wide slab, so the box reported a
+  tall creature no matter which way the visible one was pointing. It is equally
+  useless for measuring size.
+- **A single pair of bones.** `Bone_00` to `Bone.001_end_010` looked like
+  bell-to-tentacle from the node names. It is a short bone *inside the bell*. A
+  real direction that means nothing.
+
+What finally worked was measuring the **root joint against the average of every
+leaf bone**, which is the direction the tentacles actually hang:
+
+```
+LumiCatch: body axis root->tentacles = (-0.05, -1.00, -0.03)  from 5 tips  ->  Y  UPRIGHT (tentacles down)
+```
+
+Roughly `(0, -1, 0)` is upright, `(0, +1, 0)` is upside down, and a dominant X or
+Z is on its side. Those readings are unambiguous, and they are what the eye
+agrees with.
+
+**The lesson, stated plainly: on a skinned mesh, do not trust a bounding box for
+orientation or for size, and do not trust bone names to tell you anatomy.**
+Measure the posed skeleton, and believe the person looking at the screen. Three
+rounds of this were spent arguing with a number that was measuring the wrong
+geometry.
+
+*It was three metres tall.* Creature size is not something you can read off the
+source, because it is the prefab's own scale chain times `creatureScale`, and an
+imported model brings its own units. `reportCreatureSize()` logs the real span
+a second after startup, measured across the **posed bones** for the reason
+above:
+
+```
+LumiCatch: creature spans 9.4 x 20.1 x 6.9 cm across 14 bones at creatureScale 0.060, animated
+```
+
+`creatureScale` ended at 0.06 for a 20 cm creature. The bone span runs slightly
+small, since the mesh skins a little beyond the bones, so the drawn creature is
+a couple of centimetres larger than the figure.
+
+Note the value in the **Inspector overrides the source default**, a trap this
+project has hit repeatedly. It was sitting at 10 while the source said 1.0.
+Both were set.
+
+*All fourteen pulsed in lockstep.* The clip autoplays from t=0 on every
+instance, so the whole shoal beat on the same frame, which reads as a
+screensaver rather than a shoal. `desyncAnimation()` starts each one at a random
+point with `playClipAt(clip.name, Math.random() * clip.end)`. It is a no-op on a
+prefab with no animation, which is how the sphere behaved.
+
+The old fake bell pulse, `pulseAmount`, was a sine wave scaling the whole sphere
+up and down. With a real skeletal swim cycle it fights the animation and makes
+the creature visibly inflate, so it is now 0.
+
+*The animation was running and nobody could see it.* Reported as 'why can't I
+see the animation of jellyfish 3d model'. The `AnimationPlayer` was playing, the
+clip was looping, and the creature looked like a static prop.
+
+'The player exists and autoplays' is not the same claim as 'the creature
+visibly animates', and only one of those can be checked by reading code. The
+startup log now samples the skeleton twice, 1.6 s apart, which separates the two
+possible faults: a still skeleton means the clip is not running, while a moving
+skeleton under a mesh that does not move is a skinning problem in the material.
+It returned:
+
+```
+creature spans  9.6 x 20.3 x 6.9 cm   (t = 1.0 s)
+creature spans 10.3 x 20.3 x 6.1 cm   (t = 2.6 s)
+skeleton moved 1.66 cm over 1.6 s  ->  BONES ARE ANIMATING
+```
+
+Nothing was broken. The model's swim cycle is 4.12 s of graceful drift, which
+amounts to about **1.6 cm of movement on a 20 cm creature** and is simply below
+the threshold of perception for a translucent object at 1 to 3 m on a 27 degree
+display. Two fixes:
+
+- `swimSpeed` (2.2) sets `AnimationClip.playbackSpeed`, so the cycle runs in under two seconds instead of four. Measured again afterwards: **6.29 cm over 1.6 s**, nearly four times the motion.
+- `pulseAmount` is back at 0.07. It had been set to 0 on the argument that a real skeletal animation made a fake scale pulse redundant. That was wrong, and the measurement is what showed it: the real animation is too subtle to carry the job alone, and a gentle whole-body breathing pulse is what actually makes the shoal look alive.
+
+The general lesson is the same one the orientation hunt taught: **verify the
+thing the user can see, not the thing the code claims.** 'The animation plays'
+was true and useless.
+
+*They all hung at exactly the same angle.* Real jellyfish drift at slight
+angles. `tiltVarietyDeg` (16) gives each creature a fixed lean, derived from its
+existing `seed` rather than stored, so it is constant per creature and different
+between them. At 0 every creature is perfectly vertical, which is what you want
+while checking orientation and not what you want on camera.
+
+**Confirmed working:** the unlit neon material tints the skinned mesh correctly.
+That was the one real risk in the swap, since the creature colours are set by
+cloning and tinting a material at runtime and a shader that did not handle bone
+skinning would have failed silently. Cyan, violet and gold all render.
+
+### Room bounds: keeping jellyfish out of the walls
+
+Spawning all around the room exposed the next problem, reported after the first
+real playtest: *"currently they go inside the walls, can we have a room scale
+boundry? so the jellyfish dont go inside walls and furnitures"*.
+
+The instruction that followed mattered more than the feature: *"make sure to
+use world mesh and not your own thing, use what lens studio already gives."*
+That is the right call. A hand-rolled geometry system would be more code, worse
+results, and one more thing to fail on camera.
+
+**`WorldQueryModule` is the world mesh API.** There is no separate thing to
+install:
+
+```ts
+const wq = require('LensStudio:WorldQueryModule');
+this.hitSession = wq.createHitTestSession(options);
+this.hitSession.start();
+```
+
+`checkWalls()` raycasts from the camera towards one creature per frame, round
+robin, so the cost is one hit test per frame no matter how many creatures are
+in the room. If a real surface comes back closer than the creature, the
+creature is pulled in front of it by `wallMarginCm` (25 cm) and re-homed there,
+so it does not immediately swim back into the wall.
+
+The hit test result arrives in a callback, by which time the creature array may
+have changed, so the callback re-checks before touching anything:
+
+```ts
+if (this.creatures.indexOf(c) < 0) return;
+```
+
+Inputs: `useWorldMesh` (on), `wallMarginCm` (25), plus `useRoomBounds` (on) and
+`roomRadiusCm` (170) as a plain spherical fallback for rooms where the mesh has
+not been built up yet. Both can run together; the sphere is the cheap floor and
+the mesh is the accurate one.
+
+**Occlusion is a separate step and worth doing.** Hit testing stops creatures
+entering walls, but it does not make a wall hide one that is behind it. For
+that, add a **World Mesh** object to the scene and give its visual an occluder
+material, `RoomOccluder` here. Real furniture then hides the jellyfish, which is
+the single strongest argument on camera that this is mixed reality and not an
+overlay. Confirmed in the log:
+
+```
+LumiCatch: world mesh hit testing active
+```
+
+Note the object the preset creates is named **World Mesh**, and the preset
+returns the **component** UUID rather than the object's, which is worth knowing
+before hunting for it in the scene graph.
 
 ### Internet Module: nothing to install
 
@@ -1102,20 +1476,82 @@ Two models on the Qualcomm side, in `neon_ai.py`. Covered in full below.
 `dashboard.py`, served on **port 8080** from the same Python process as the
 WebSocket server. Open `http://<board-ip>:8080` on any device on the network.
 
-It shows live: connected sessions, per-player swings, catches and catch rate,
-each player's own difficulty level with a bar, the shoal mood they are seeing,
-and the trajectory model's last predicted lead and confidence.
+The page is built for someone who has never seen the project. The first
+playtest verdict on the old version was blunt, and fair: *"what is the use of
+dashboard i dont understand."* It was a grid of unlabelled numbers. It was
+rewritten around three questions instead.
+
+**Who is playing.** Players are the top of the page, one card each, sorted by
+score with the leader marked. Each card carries the player number, their
+address, their score, catches out of swings, catch rate, and the shoal mood
+they are currently seeing.
+
+**What the AI decided for them.** Every card has a difficulty meter labelled in
+words rather than a bare number: *Gentle, Easy, Balanced, Hard, Brutal*. Under
+it, a sentence saying what the model just did and why, for example *"Catching
+more than 55% of swings, so the shoal was sped up and made harder to sneak up
+on."* The thresholds in that sentence are sent with the state as
+`target_ratio` and `dead_band`, read off the live `AdaptiveDifficulty`, so the
+explanation cannot drift away from what the model is actually doing.
+
+**What the two models are.** Each is named, described in a sentence of plain
+English, and shown with its live figures: swings forecast and warning time for
+the trajectory model, players tuned and forecast confidence for the difficulty
+model.
+
+Totals sit in a thin strip at the bottom, because the per-player story is the
+point and the totals are not.
 
 **Multiplayer is real, not decorative.** Every connected Lens becomes a
 `Session` with **its own `AdaptiveDifficulty` model**, so two players on one net
 world each get tuned to their own skill rather than sharing an average. Results
-and difficulty updates are addressed per socket, not broadcast.
+and difficulty updates are addressed per socket, not broadcast. The Lens sends
+its score with every result, so the leaderboard is the game's own score rather
+than a count kept separately on the board.
 
-`mock-net.py` serves the identical dashboard, so you can demonstrate and film
-it from a laptop if the board is being difficult on the day.
+No webfonts and no CDN: the board is usually on a phone hotspot with no route
+out, so anything external would silently fail to load.
 
-Verified: a connected client reporting five swings with four hits showed one
-session at 80 per cent catch rate, difficulty 0.55 and the correct mood.
+`mock-net.py` serves the identical page. Note that the mock keeps **one** shared
+difficulty model for all clients, because it is a single-player rehearsal tool,
+so two clients against the mock show identical figures. **Film the multiplayer
+shot against the board**, where the per-session models are real.
+
+Verified: two clients driven through nine results each showed correct
+per-session scores, catch rates, difficulty and mood, with the page serving and
+every field the UI renders present in `/state`.
+
+#### Dead sessions used to pile up
+
+Found while testing the new page: the dashboard was listing **eleven players
+from one address, all with zero swings**. None of them existed.
+
+Every Lens preview restart opens a fresh WebSocket, and the old socket is left
+open with nobody behind it. No TCP FIN ever arrives, so `read_frame` blocked on
+`recv` for ever, the handler thread parked, and the session stayed listed for
+the life of the process. Rehearse a few times before filming and the board
+invents a dozen players in the middle of the multiplayer shot.
+
+The fix is a read timeout plus a keepalive ping:
+
+```python
+conn.settimeout(IDLE_PING_INTERVAL)      # 30 seconds
+...
+try:
+    frame = read_frame(conn)
+except socket.timeout:
+    conn.sendall(b'\x89\x00')            # ping, empty payload
+    continue
+```
+
+The Lens only speaks when something happens, so silence is normal and is never
+on its own grounds to drop anyone. The ping is what provokes a dead peer's
+machine into answering with a reset, which makes the next read raise and clears
+the session. Deliberately **not** conditional on getting a pong back, so a
+healthy but idle player can never be dropped whatever the Lens does about pings.
+
+Tested on real sockets both ways: a silent client survived four consecutive
+ping intervals, and a client killed abruptly with `SO_LINGER 0` was reaped.
 
 **Filming note.** The dashboard is the easiest way to put the AI and the
 multiplayer claim on screen. A browser window beside the first-person capture,
@@ -1299,7 +1735,7 @@ Ranked by likelihood, not by drama:
 4. **Lifted pad.** Too much heat or force pulls the copper away. Visible under magnification, and effectively terminal without fine rework.
 5. **Heat damage to the chip.** Possible, but last on the list. A lit LED shows the power section survived, and the I2C pins are not especially fragile.
 
-`i2c-scan.ino` rescans every four seconds, so leave it running while you rework
+`diagnostics/i2c-scan.ino` rescans every four seconds, so leave it running while you rework
 a joint and watch for `Found a device at 0x68` without touching anything.
 
 ## If you run short of time

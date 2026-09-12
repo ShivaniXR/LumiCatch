@@ -25,6 +25,7 @@ from dashboard import start_dashboard
 WS_PORT = 8765
 POLL_INTERVAL = 0.03          # seconds, ~30 Hz
 MCU_SAMPLE_INTERVAL = 0.005   # the sketch samples at ~200 Hz
+IDLE_PING_INTERVAL = 30.0     # how often to probe a silent player, seconds
 
 clients = set()
 bridge_lock = threading.Lock()
@@ -56,6 +57,7 @@ class Session:
         self.swings = 0
         self.hits = 0
         self.mood = "calm"
+        self.score = 0          # the Lens is the authority on this
 
     def as_dict(self):
         return {
@@ -63,9 +65,14 @@ class Session:
             "address": self.address,
             "swings": self.swings,
             "hits": self.hits,
+            "score": self.score,
             "catch_ratio": (self.hits / self.swings) if self.swings else 0.0,
             "difficulty": self.dda.level(),
             "mood": self.mood,
+            # The dashboard explains in words why difficulty moved, so it needs
+            # the model's real thresholds rather than a second copy of them.
+            "target_ratio": self.dda.target_ratio,
+            "dead_band": self.dda.dead_band,
         }
 
 
@@ -224,8 +231,23 @@ def handle_client(conn, addr):
         conn.sendall(response.encode())
         _send_text(conn, json.dumps(session.dda.params()))
 
+        # Without this, a Lens that goes away without closing cleanly, which is
+        # what happens every time the preview restarts, leaves this thread
+        # blocked on recv forever and its session listed on the dashboard for
+        # good. Rehearse a few times and the board invents a dozen players.
+        conn.settimeout(IDLE_PING_INTERVAL)
+
         while True:
-            frame = read_frame(conn)
+            try:
+                frame = read_frame(conn)
+            except socket.timeout:
+                # The Lens only speaks when something happens, so a long
+                # silence is normal and is never on its own grounds to drop a
+                # player. Poke the socket instead: if the peer is gone its
+                # machine answers with a reset, and the next read raises, which
+                # ends this thread and clears the session below.
+                conn.sendall(b'\x89\x00')      # ping, empty payload
+                continue
             if frame is None:
                 break
             opcode, payload = frame
@@ -253,6 +275,8 @@ def handle_client(conn, addr):
                     session.hits += 1
                 if isinstance(data.get("mood"), str):
                     session.mood = data["mood"]
+                if isinstance(data.get("score"), (int, float)):
+                    session.score = int(data["score"])
                 session.dda.record_result(hit)
                 params = session.dda.params()
                 print("Player %d %s | ratio %.2f | difficulty %.2f"

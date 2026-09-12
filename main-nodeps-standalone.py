@@ -288,104 +288,274 @@ PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Neon-Net Control</title>
 <style>
+ /* A single, deliberately dark instrument panel. It is filmed beside gameplay
+    footage shot in a dim room, so it commits to one look rather than tracking
+    the viewer's theme. Every colour is painted explicitly. */
  :root{
-   --bg:#070d12;--panel:#0e1922;--line:#1b2a36;--ink:#dff2f6;--dim:#6d8794;
-   --cyan:#26f0ff;--violet:#7a80ff;--gold:#ffc93c;
+   --abyss:#06101a;      /* page ground */
+   --panel:#0d1a26;      /* card ground */
+   --panel-2:#112331;    /* nested wells */
+   --line:#1d3040;
+   --ink:#dcecf2;
+   --dim:#6b8896;        /* slate with a cyan bias, not a neutral grey */
+   --cyan:#2ff0e0;
+   --violet:#8a7dff;
+   --gold:#ffc247;
+   --coral:#ff6b7a;
  }
  *{box-sizing:border-box}
- body{margin:0;background:var(--bg);color:var(--ink);
-   font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-   font-size:15px;line-height:1.5}
- .wrap{max-width:1000px;margin:0 auto;padding:28px 18px 60px;
-   display:flex;flex-direction:column;gap:24px}
- header{display:flex;justify-content:space-between;align-items:baseline;
-   flex-wrap:wrap;gap:10px;border-bottom:1px solid var(--line);padding-bottom:14px}
- h1{margin:0;font-size:20px;letter-spacing:.14em;text-transform:uppercase}
- .live{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:8px}
+ html{-webkit-text-size-adjust:100%}
+ body{
+   margin:0;background:var(--abyss);color:var(--ink);
+   font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;
+   font-size:15px;line-height:1.55;
+ }
+ .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+ .num{font-variant-numeric:tabular-nums;
+   font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+
+ .wrap{max-width:1060px;margin:0 auto;padding:26px 18px 64px;
+   display:flex;flex-direction:column;gap:26px}
+
+ /* ---- header ---- */
+ header{display:flex;justify-content:space-between;align-items:flex-start;
+   flex-wrap:wrap;gap:14px;border-bottom:1px solid var(--line);
+   padding-bottom:16px}
+ h1{margin:0;font-size:19px;letter-spacing:.18em;text-transform:uppercase;
+   font-weight:600}
+ header p{margin:6px 0 0;color:var(--dim);font-size:13px;max-width:56ch}
+ .live{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);
+   letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
  .dot{width:8px;height:8px;border-radius:50%;background:var(--cyan);
    box-shadow:0 0 10px var(--cyan);animation:p 1.6s infinite}
- .dot.off{background:#54646f;box-shadow:none}
+ .dot.off{background:#4a5c67;box-shadow:none;animation:none}
  @keyframes p{0%,100%{opacity:1}50%{opacity:.25}}
  @media (prefers-reduced-motion:reduce){.dot{animation:none}}
- .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
- .card{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px}
- .k{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
- .v{font-size:30px;margin-top:6px;font-variant-numeric:tabular-nums}
- h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
-   margin:0 0 10px;font-weight:400}
- table{width:100%;border-collapse:collapse;font-size:14px}
- th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
- th{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);font-weight:400}
- td.n{text-align:right;font-variant-numeric:tabular-nums}
- .bar{height:6px;background:#122029;border-radius:3px;overflow:hidden;margin-top:8px}
- .bar i{display:block;height:100%;background:var(--cyan);transition:width .4s}
- .tag{font-size:11px;padding:2px 7px;border:1px solid currentColor;border-radius:2px}
- .calm{color:var(--cyan)}.curious{color:var(--violet)}.spooked{color:var(--gold)}
- .empty{color:var(--dim);padding:18px 10px}
- .wrapover{overflow-x:auto}
+
+ /* ---- shared bits ---- */
+ .k{font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;
+   color:var(--dim)}
+ section>h2{margin:0 0 4px;font-size:12px;letter-spacing:.16em;
+   text-transform:uppercase;color:var(--ink);font-weight:600}
+ section>p.lead{margin:0 0 14px;color:var(--dim);font-size:13px;max-width:64ch}
+
+ /* ---- player cards: the hero of the page ---- */
+ .players{display:grid;gap:14px;
+   grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+ .player{background:var(--panel);border:1px solid var(--line);border-radius:6px;
+   padding:18px;display:flex;flex-direction:column;gap:16px}
+ .player.lead-player{border-color:#2f4a52;box-shadow:inset 3px 0 0 var(--gold)}
+ .phead{display:flex;justify-content:space-between;align-items:flex-start;
+   gap:10px}
+ .pname{font-size:17px;font-weight:600;letter-spacing:.03em}
+ .paddr{font-size:11.5px;color:var(--dim);margin-top:2px}
+ .chip{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+   padding:3px 8px;border:1px solid currentColor;border-radius:99px;
+   white-space:nowrap}
+ .calm{color:var(--cyan)}
+ .curious{color:var(--violet)}
+ .spooked{color:var(--gold)}
+ .crown{color:var(--gold);font-size:10.5px;letter-spacing:.14em;
+   text-transform:uppercase;margin-top:6px;display:block}
+
+ .pstats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+ .pstats .v{font-size:27px;margin-top:3px;line-height:1.15}
+ .pstats small{display:block;font-size:11.5px;color:var(--dim);
+   font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;margin-top:2px}
+
+ .diff{background:var(--panel-2);border-radius:4px;padding:13px 14px}
+ .dhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+ .dband{font-size:13px}
+ .bar{height:7px;background:#0a1620;border-radius:4px;overflow:hidden;
+   margin-top:9px}
+ .bar i{display:block;height:100%;border-radius:4px;transition:width .45s ease}
+ .note{margin:10px 0 0;font-size:12.5px;color:var(--dim);line-height:1.5}
+
+ .empty{background:var(--panel);border:1px dashed var(--line);border-radius:6px;
+   padding:26px 20px;color:var(--dim);font-size:13.5px}
+ .empty strong{color:var(--ink);display:block;margin-bottom:6px;
+   font-weight:600;font-size:14px}
+
+ /* ---- the two AI models ---- */
+ .models{display:grid;gap:14px;
+   grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+ .model{background:var(--panel);border:1px solid var(--line);border-radius:6px;
+   padding:18px;display:flex;flex-direction:column;gap:14px}
+ .mname{font-size:14px;font-weight:600;letter-spacing:.03em}
+ .mname span{display:block;font-size:10.5px;letter-spacing:.14em;
+   text-transform:uppercase;color:var(--cyan);margin-bottom:5px;font-weight:400}
+ .model.b .mname span{color:var(--violet)}
+ .mdesc{margin:0;font-size:12.5px;color:var(--dim);line-height:1.55}
+ .mstats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;
+   border-top:1px solid var(--line);padding-top:13px;margin-top:auto}
+ .mstats .v{font-size:22px;margin-top:3px}
+
+ /* ---- footer strip ---- */
+ .strip{display:flex;flex-wrap:wrap;gap:22px 34px;border-top:1px solid var(--line);
+   padding-top:16px;color:var(--dim);font-size:12.5px}
+ .strip b{color:var(--ink);font-weight:600}
 </style></head><body>
 <div class="wrap">
+
  <header>
-   <h1>Neon-Net Control</h1>
+   <div>
+     <h1>Neon-Net Control</h1>
+     <p>Running on the Arduino UNO Q. It hosts the game, keeps one session per
+        player, and re-tunes the jellyfish for each of them independently.</p>
+   </div>
    <div class="live"><span class="dot" id="dot"></span><span id="status">connecting</span></div>
  </header>
 
- <div class="grid">
-   <div class="card"><div class="k">Sessions</div><div class="v" id="sessions">0</div></div>
-   <div class="card"><div class="k">Swings</div><div class="v" id="swings">0</div></div>
-   <div class="card"><div class="k">Catches</div><div class="v" id="catches">0</div></div>
-   <div class="card"><div class="k">Predictions</div><div class="v" id="preds">0</div></div>
+ <section>
+   <h2>Players in this world</h2>
+   <p class="lead">Every pair of Spectacles that connects gets its own session
+      and its own difficulty AI, so two people of different skill can share the
+      same room and each get a fair game.</p>
+   <div class="players" id="players"></div>
+ </section>
+
+ <section>
+   <h2>The AI running on the board</h2>
+   <p class="lead">Both models run on the UNO Q's Qualcomm Linux side. Nothing
+      is sent to the cloud.</p>
+   <div class="models">
+     <div class="model a">
+       <div class="mname"><span>Model 1</span>Predictive Trajectory AI</div>
+       <p class="mdesc">Reads the net's motion 200 times a second and works out
+          when the swing will peak, roughly a tenth of a second before it does.
+          The glasses are told a catch is coming while the net is still moving,
+          which is what hides the wireless delay.</p>
+       <div class="mstats">
+         <div><div class="k">Swings forecast</div><div class="v num" id="preds">0</div></div>
+         <div><div class="k">Warning given</div><div class="v num" id="eta">--</div></div>
+       </div>
+     </div>
+     <div class="model b">
+       <div class="mname"><span>Model 2</span>Adaptive Difficulty AI</div>
+       <p class="mdesc">Watches how often each player actually catches something
+          over their last ten swings and moves their difficulty to keep them near
+          a 55 per cent catch rate. Too easy and the shoal speeds up and starts
+          cloaking; too hard and it eases off.</p>
+       <div class="mstats">
+         <div><div class="k">Players tuned</div><div class="v num" id="tuned">0</div></div>
+         <div><div class="k">Forecast confidence</div><div class="v num" id="conf">--</div></div>
+       </div>
+     </div>
+   </div>
+ </section>
+
+ <div class="strip">
+   <span><b id="swings">0</b> swings taken</span>
+   <span><b id="catches">0</b> jellyfish caught</span>
+   <span>running for <b id="up">--</b></span>
+   <span>refreshing twice a second</span>
  </div>
 
- <div class="card">
-   <h2>Players</h2>
-   <div class="wrapover">
-   <table><thead><tr>
-     <th>Session</th><th>Address</th><th class="n">Swings</th>
-     <th class="n">Catches</th><th class="n">Catch rate</th><th>Difficulty</th>
-   </tr></thead><tbody id="rows"></tbody></table>
-   </div>
- </div>
-
- <div class="card">
-   <h2>Kinetic engine</h2>
-   <div class="grid">
-     <div><div class="k">Last predicted lead</div><div class="v" id="eta">--</div></div>
-     <div><div class="k">Confidence</div><div class="v" id="conf">--</div></div>
-     <div><div class="k">Uptime</div><div class="v" id="up">--</div></div>
-   </div>
- </div>
 </div>
 <script>
-function pct(x){return (x*100).toFixed(0)+'%';}
+function pct(x){ return Math.round((x||0)*100) + '%'; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,
+  function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+// Plain words for a number between 0 and 1, so nobody has to know what 0.45
+// means. The bands match what the Lens actually does at each level.
+function band(d){
+  if(d < 0.25) return {word:'Gentle',   col:'var(--cyan)'};
+  if(d < 0.45) return {word:'Easy',     col:'var(--cyan)'};
+  if(d < 0.65) return {word:'Balanced', col:'var(--violet)'};
+  if(d < 0.85) return {word:'Hard',     col:'var(--gold)'};
+  return           {word:'Brutal',   col:'var(--coral)'};
+}
+
+// What the difficulty AI last decided, said out loud. The thresholds are the
+// model's real target and dead band, sent with the state rather than guessed.
+function note(p){
+  var target = (p.target_ratio == null) ? 0.55 : p.target_ratio;
+  var dead   = (p.dead_band == null) ? 0.12 : p.dead_band;
+  if(p.swings < 4)
+    return 'Watching the first few swings before it changes anything.';
+  if(p.catch_ratio > target + dead)
+    return 'Catching more than ' + pct(target) + ' of swings, so the shoal was '
+         + 'sped up and made harder to sneak up on.';
+  if(p.catch_ratio < target - dead)
+    return 'Catching less than ' + pct(target) + ' of swings, so the shoal was '
+         + 'slowed down and made less jumpy.';
+  return 'Catch rate is inside the ' + pct(target - dead) + ' to '
+       + pct(target + dead) + ' band the AI aims for, so difficulty is '
+       + 'holding steady.';
+}
+
+function moodChip(m){
+  var words = {calm:'Shoal calm', curious:'Shoal curious',
+               spooked:'Shoal spooked'};
+  var cls = (m === 'curious' || m === 'spooked') ? m : 'calm';
+  return '<span class="chip ' + cls + '">' + (words[cls]) + '</span>';
+}
+
+function playerCard(p, leading, many){
+  var d = p.difficulty || 0, b = band(d);
+  return '<article class="player' + (leading ? ' lead-player' : '') + '">'
+    + '<div class="phead"><div>'
+    +   '<div class="pname">Player ' + esc(p.id) + '</div>'
+    +   '<div class="paddr mono">' + esc(p.address) + '</div>'
+    +   (leading && many ? '<span class="crown">Leading</span>' : '')
+    + '</div>' + moodChip(p.mood) + '</div>'
+    + '<div class="pstats">'
+    +   '<div><div class="k">Score</div><div class="v num">'
+    +     (p.score == null ? '--' : esc(p.score)) + '</div></div>'
+    +   '<div><div class="k">Caught</div><div class="v num">' + esc(p.hits)
+    +     '<small>of ' + esc(p.swings) + ' swings</small></div></div>'
+    +   '<div><div class="k">Catch rate</div><div class="v num">'
+    +     pct(p.catch_ratio) + '</div></div>'
+    + '</div>'
+    + '<div class="diff">'
+    +   '<div class="dhead"><span class="k">Difficulty the AI chose</span>'
+    +     '<span class="dband num" style="color:' + b.col + '">' + b.word
+    +     '  ' + d.toFixed(2) + '</span></div>'
+    +   '<div class="bar"><i style="width:' + pct(d) + ';background:' + b.col
+    +     '"></i></div>'
+    +   '<p class="note">' + note(p) + '</p>'
+    + '</div></article>';
+}
+
+var EMPTY = '<div class="empty"><strong>Nobody is playing yet.</strong>'
+  + 'Put on the Spectacles and start the Lens with <span class="mono">simulate'
+  + '</span> unticked. Each pair that connects appears here as its own session '
+  + 'with its own difficulty AI. Run a second client to see multiplayer.</div>';
+
+function fmtUptime(s){
+  s = Math.floor(s || 0);
+  var m = Math.floor(s / 60);
+  return m ? (m + 'm ' + (s % 60) + 's') : (s + 's');
+}
+
 async function tick(){
   try{
-    const r = await fetch('/state',{cache:'no-store'});
+    const r = await fetch('/state', {cache:'no-store'});
     const s = await r.json();
-    document.getElementById('status').textContent='live';
+    document.getElementById('status').textContent = 'live';
     document.getElementById('dot').classList.remove('off');
-    document.getElementById('sessions').textContent=s.sessions.length;
-    document.getElementById('swings').textContent=s.total_swings;
-    document.getElementById('catches').textContent=s.total_hits;
-    document.getElementById('preds').textContent=s.predictions;
-    document.getElementById('eta').textContent=s.last_eta_ms?s.last_eta_ms.toFixed(0)+' ms':'--';
-    document.getElementById('conf').textContent=s.last_confidence?s.last_confidence.toFixed(2):'--';
-    document.getElementById('up').textContent=Math.floor(s.uptime_s)+' s';
-    const rows=document.getElementById('rows');
-    if(!s.sessions.length){
-      rows.innerHTML='<tr><td colspan="6" class="empty">No players connected. Start the Lens with simulate unticked.</td></tr>';
-    }else{
-      rows.innerHTML=s.sessions.map(p=>`<tr>
-        <td>#${p.id} <span class="tag ${p.mood}">${p.mood}</span></td>
-        <td>${p.address}</td>
-        <td class="n">${p.swings}</td>
-        <td class="n">${p.hits}</td>
-        <td class="n">${pct(p.catch_ratio)}</td>
-        <td>${p.difficulty.toFixed(2)}<div class="bar"><i style="width:${pct(p.difficulty)}"></i></div></td>
-      </tr>`).join('');
-    }
+
+    var ps = (s.sessions || []).slice();
+    // Highest score first, so the leaderboard reads top-left downwards.
+    ps.sort(function(a, b){ return (b.score || 0) - (a.score || 0)
+                                || a.id - b.id; });
+    var many = ps.length > 1;
+    document.getElementById('players').innerHTML = ps.length
+      ? ps.map(function(p, i){ return playerCard(p, i === 0, many); }).join('')
+      : EMPTY;
+
+    document.getElementById('tuned').textContent   = ps.length;
+    document.getElementById('preds').textContent   = s.predictions;
+    document.getElementById('swings').textContent  = s.total_swings;
+    document.getElementById('catches').textContent = s.total_hits;
+    document.getElementById('eta').textContent =
+      s.last_eta_ms ? s.last_eta_ms.toFixed(0) + ' ms' : '--';
+    document.getElementById('conf').textContent =
+      s.last_confidence ? s.last_confidence.toFixed(2) : '--';
+    document.getElementById('up').textContent = fmtUptime(s.uptime_s);
   }catch(e){
-    document.getElementById('status').textContent='offline';
+    document.getElementById('status').textContent = 'offline';
     document.getElementById('dot').classList.add('off');
   }
 }
@@ -428,6 +598,10 @@ def start_dashboard(state_provider, port=DASHBOARD_PORT):
     state_provider() must return a dict shaped like:
         {sessions: [...], total_swings, total_hits, predictions,
          last_eta_ms, last_confidence, uptime_s}
+
+    Each session should carry id, address, swings, hits, catch_ratio,
+    difficulty and mood. score, target_ratio and dead_band are optional; the
+    page falls back sensibly when they are missing.
     '''
 
     class Handler(BaseHTTPRequestHandler):
@@ -476,6 +650,7 @@ def start_dashboard(state_provider, port=DASHBOARD_PORT):
 WS_PORT = 8765
 POLL_INTERVAL = 0.03          # seconds, ~30 Hz
 MCU_SAMPLE_INTERVAL = 0.005   # the sketch samples at ~200 Hz
+IDLE_PING_INTERVAL = 30.0     # how often to probe a silent player, seconds
 
 clients = set()
 bridge_lock = threading.Lock()
@@ -507,6 +682,7 @@ class Session:
         self.swings = 0
         self.hits = 0
         self.mood = "calm"
+        self.score = 0          # the Lens is the authority on this
 
     def as_dict(self):
         return {
@@ -514,9 +690,14 @@ class Session:
             "address": self.address,
             "swings": self.swings,
             "hits": self.hits,
+            "score": self.score,
             "catch_ratio": (self.hits / self.swings) if self.swings else 0.0,
             "difficulty": self.dda.level(),
             "mood": self.mood,
+            # The dashboard explains in words why difficulty moved, so it needs
+            # the model's real thresholds rather than a second copy of them.
+            "target_ratio": self.dda.target_ratio,
+            "dead_band": self.dda.dead_band,
         }
 
 
@@ -675,8 +856,23 @@ def handle_client(conn, addr):
         conn.sendall(response.encode())
         _send_text(conn, json.dumps(session.dda.params()))
 
+        # Without this, a Lens that goes away without closing cleanly, which is
+        # what happens every time the preview restarts, leaves this thread
+        # blocked on recv forever and its session listed on the dashboard for
+        # good. Rehearse a few times and the board invents a dozen players.
+        conn.settimeout(IDLE_PING_INTERVAL)
+
         while True:
-            frame = read_frame(conn)
+            try:
+                frame = read_frame(conn)
+            except socket.timeout:
+                # The Lens only speaks when something happens, so a long
+                # silence is normal and is never on its own grounds to drop a
+                # player. Poke the socket instead: if the peer is gone its
+                # machine answers with a reset, and the next read raises, which
+                # ends this thread and clears the session below.
+                conn.sendall(b'\x89\x00')      # ping, empty payload
+                continue
             if frame is None:
                 break
             opcode, payload = frame
@@ -704,6 +900,8 @@ def handle_client(conn, addr):
                     session.hits += 1
                 if isinstance(data.get("mood"), str):
                     session.mood = data["mood"]
+                if isinstance(data.get("score"), (int, float)):
+                    session.score = int(data["score"])
                 session.dda.record_result(hit)
                 params = session.dda.params()
                 print("Player %d %s | ratio %.2f | difficulty %.2f"

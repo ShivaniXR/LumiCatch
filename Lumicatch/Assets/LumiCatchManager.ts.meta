@@ -32,57 +32,77 @@
     ambientTrack: false
     ambientVolume: false
     attractDim: false
+    bloomMultiplier: false
+    bloomSeconds: false
+    bloomSpawnCount: false
+    burstLifeS: false
+    burstMoteScale: false
+    burstMotes: false
     burstPrefab: false
+    burstSpreadCm: false
     camera: false
     captureConeDot: false
     captureRangeCm: false
     captureSound: false
     captureTrack: false
     captureVolume: false
+    catchFlyS: false
+    catchFlyToCm: false
+    catchPopupText: false
     cohesionCalm: false
     cohesionCurious: false
     cohesionSpooked: false
+    comboMax: false
+    comboWindowS: false
     creatureCount: false
+    creatureOpacity: false
     creatureParent: false
     creaturePrefab: false
     creatureScale: false
     curiousDistanceCm: false
     curiousMisses: false
     curiousSeconds: false
+    difficultyLabelText: false
     driftAmplitudeCm: false
     driftEaseRate: false
     fleeDistanceCm: false
     fleeSpeedCm: false
     forwardSign: false
+    gentleSwingG: false
     guaranteeDelayS: false
     guaranteeEasyTarget: false
     heroDistanceCm: false
-    hudArcCm: false
     hudDistanceCm: false
-    hudMoteBaseCm: false
-    hudMoteCount: false
-    hudMoteLitCm: false
     hudWidthCm: false
     hudYCm: false
     internetModule: false
     leashMaxCm: false
+    lungeRangeCm: false
+    lungeSpookCm: false
     mercyMisses: false
     mercySeconds: false
-    moodHoldS: false
-    moodScale: false
-    moodText: false
+    modelUprightDeg: false
+    moodFaceCalm: false
+    moodFaceCurious: false
+    moodFaceSpooked: false
+    moodFaceText: false
     nearbyCooldownS: false
     nearbyRangeCm: false
+    neonMaterial: false
     pinchAsSwing: false
     plateMargin: false
     plateRadius: false
+    predictFlashText: false
     pulseAmount: false
-    pulseTravelS: false
     rareChance: false
     rarePrefab: false
     rareScaleMult: false
     requireStart: false
     returnSpeedCm: false
+    roomCeilingCm: false
+    roomFloorCm: false
+    roomRadiusCm: false
+    roundSeconds: false
     schoolCount: false
     schoolDriftRate: false
     schoolFarCm: false
@@ -95,6 +115,8 @@
     serverUrl: false
     simulate: false
     skittishChance: false
+    sneakRangeCm: false
+    sneakSpookCm: false
     spawnAllAround: false
     spawnHeightSpreadCm: false
     spawnMaxCm: false
@@ -111,8 +133,14 @@
     startTitle: false
     startTitleLabel: false
     startTitleText: false
+    swimSpeed: false
+    tiltVarietyDeg: false
     useMercy: false
     usePinchToSwing: false
+    useRoomBounds: false
+    useSwingQuality: false
+    useWorldMesh: false
+    wallMarginCm: false
   ScriptTypesHidden:
     {}
   ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
@@ -150,10 +178,31 @@
       captureConeDot: 0.450000
       nearbyRangeCm: !<float> 90.000000
       nearbyCooldownS: 2.500000
+      useSwingQuality: true
+      gentleSwingG: 4.600000
+      sneakRangeCm: !<float> 85.000000
+      lungeRangeCm: !<float> 170.000000
+      sneakSpookCm: !<float> 40.000000
+      lungeSpookCm: !<float> 120.000000
+      catchFlyS: 0.200000
+      catchFlyToCm: !<float> 35.000000
+      burstMotes: !<float> 6.000000
+      burstSpreadCm: !<float> 26.000000
+      burstLifeS: 0.450000
+      burstMoteScale: !<float> 3.000000
+      comboWindowS: !<float> 4.000000
+      comboMax: !<float> 4.000000
+      bloomSeconds: !<float> 15.000000
+      bloomSpawnCount: !<float> 6.000000
+      bloomMultiplier: !<float> 2.000000
       rareChance: 0.220000
       skittishChance: 0.350000
       creatureScale: !<float> 1.000000
       rareScaleMult: 1.350000
+      neonMaterial: !<reference.Material> 00000000-0000-0000-0000-000000000000
+      modelUprightDeg: !<float> 90.000000
+      creatureOpacity: 0.550000
+      tiltVarietyDeg: !<float> 16.000000
       driftAmplitudeCm: !<float> 22.000000
       driftEaseRate: 1.200000
       fleeSpeedCm: !<float> 130.000000
@@ -162,8 +211,15 @@
       alertRangeCm: !<float> 55.000000
       alertHoldS: 0.220000
       leashMaxCm: !<float> 260.000000
+      swimSpeed: 2.200000
       pulseAmount: 0.120000
       spinRate: 0.350000
+      useWorldMesh: true
+      wallMarginCm: !<float> 25.000000
+      useRoomBounds: true
+      roomRadiusCm: !<float> 170.000000
+      roomCeilingCm: !<float> 55.000000
+      roomFloorCm: !<float> 110.000000
       schoolCount: !<float> 2.000000
       schoolSpreadCm: !<float> 70.000000
       schoolMidCm: !<float> 170.000000
@@ -179,19 +235,19 @@
       spookSeconds: !<float> 5.000000
       curiousMisses: !<float> 2.000000
       curiousSeconds: !<float> 8.000000
-      moodText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      moodFaceText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      predictFlashText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      catchPopupText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      difficultyLabelText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      moodFaceCalm: ^_^
+      moodFaceCurious: o_o
+      moodFaceSpooked: ">_<"
       hudDistanceCm: !<float> 100.000000
       hudWidthCm: !<float> 34.000000
       hudYCm: !<float> -22.000000
-      hudMoteCount: !<float> 11.000000
-      hudMoteBaseCm: 0.800000
-      hudMoteLitCm: 1.800000
-      hudArcCm: 2.500000
-      pulseTravelS: 0.550000
-      moodHoldS: 2.600000
       scoreScale: 1.500000
-      moodScale: 0.950000
       requireStart: true
+      roundSeconds: !<float> 60.000000
       startTitle: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
       startTitleText: !<reference.Text> 00000000-0000-0000-0000-000000000000
       startStatusText: !<reference.Text> 00000000-0000-0000-0000-000000000000
@@ -241,10 +297,31 @@
     - // @input float captureConeDot = 0.45
     - // @input float nearbyRangeCm = 90
     - // @input float nearbyCooldownS = 2.5
+    - // @input bool useSwingQuality = true
+    - // @input float gentleSwingG = 4.6
+    - // @input float sneakRangeCm = 85
+    - // @input float lungeRangeCm = 170
+    - // @input float sneakSpookCm = 40
+    - // @input float lungeSpookCm = 120
+    - // @input float catchFlyS = 0.2
+    - // @input float catchFlyToCm = 35
+    - // @input float burstMotes = 6
+    - // @input float burstSpreadCm = 26
+    - // @input float burstLifeS = 0.45
+    - // @input float burstMoteScale = 3
+    - // @input float comboWindowS = 4
+    - // @input float comboMax = 4
+    - // @input float bloomSeconds = 15
+    - // @input float bloomSpawnCount = 6
+    - // @input float bloomMultiplier = 2
     - // @input float rareChance = 0.22
     - // @input float skittishChance = 0.35
-    - // @input float creatureScale = 1
+    - // @input float creatureScale = 0.06
     - // @input float rareScaleMult = 1.35
+    - // @input Asset.Material neonMaterial
+    - // @input float modelUprightDeg
+    - // @input float creatureOpacity = 0.55
+    - // @input float tiltVarietyDeg = 16
     - // @input float driftAmplitudeCm = 22
     - // @input float driftEaseRate = 1.2
     - // @input float fleeSpeedCm = 130
@@ -253,8 +330,15 @@
     - // @input float alertRangeCm = 55
     - // @input float alertHoldS = 0.22
     - // @input float leashMaxCm = 260
-    - // @input float pulseAmount = 0.12
+    - // @input float swimSpeed = 2.2
+    - // @input float pulseAmount = 0.07
     - // @input float spinRate = 0.35
+    - // @input bool useWorldMesh = true
+    - // @input float wallMarginCm = 25
+    - // @input bool useRoomBounds = true
+    - // @input float roomRadiusCm = 170
+    - // @input float roomCeilingCm = 55
+    - // @input float roomFloorCm = 110
     - // @input float schoolCount = 2
     - // @input float schoolSpreadCm = 70
     - // @input float schoolMidCm = 170
@@ -270,19 +354,19 @@
     - // @input float spookSeconds = 5
     - // @input float curiousMisses = 2
     - // @input float curiousSeconds = 8
-    - // @input Component.Text moodText
+    - // @input Component.Text moodFaceText
+    - // @input Component.Text predictFlashText
+    - // @input Component.Text catchPopupText
+    - // @input Component.Text difficultyLabelText
+    - '// @input string moodFaceCalm = "^_^"'
+    - '// @input string moodFaceCurious = "o_o"'
+    - '// @input string moodFaceSpooked = ">_<"'
     - // @input float hudDistanceCm = 100
     - // @input float hudWidthCm = 30
     - // @input float hudYCm = -20
-    - // @input float hudMoteCount = 11
-    - // @input float hudMoteBaseCm = 2.2
-    - // @input float hudMoteLitCm = 4.5
-    - // @input float hudArcCm = 2.5
-    - // @input float pulseTravelS = 0.7
-    - // @input float moodHoldS = 2.6
     - // @input float scoreScale = 1.5
-    - // @input float moodScale = 0.95
     - // @input bool requireStart = true
+    - // @input float roundSeconds = 60
     - // @input SceneObject startTitle
     - // @input Component.Text startTitleText
     - // @input Component.Text startStatusText

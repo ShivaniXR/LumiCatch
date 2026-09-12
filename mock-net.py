@@ -38,6 +38,7 @@ from dashboard import start_dashboard
 HOST = '0.0.0.0'
 PORT = 8765
 DEFAULT_PEAK = 2.7
+IDLE_PING_INTERVAL = 30.0     # how often to probe a silent client, seconds
 
 # Magic value from RFC 6455, used to build the handshake response.
 WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -62,7 +63,7 @@ predictor = TrajectoryPredictor()
 # mock. Handy for filming the dashboard if the board is being difficult.
 started_at = time.time()
 mock_stats = {"swings": 0, "hits": 0, "predictions": 0,
-              "eta": 0.0, "conf": 0.0, "mood": "calm"}
+              "eta": 0.0, "conf": 0.0, "mood": "calm", "score": 0}
 
 
 def dashboard_state():
@@ -72,9 +73,11 @@ def dashboard_state():
         "sessions": [{
             "id": i + 1, "address": "mock-lens",
             "swings": mock_stats["swings"], "hits": mock_stats["hits"],
+            "score": mock_stats["score"],
             "catch_ratio": (mock_stats["hits"] / mock_stats["swings"])
                            if mock_stats["swings"] else 0.0,
             "difficulty": dda.level(), "mood": mock_stats["mood"],
+            "target_ratio": dda.target_ratio, "dead_band": dda.dead_band,
         } for i, _ in enumerate(addrs)],
         "total_swings": mock_stats["swings"],
         "total_hits": mock_stats["hits"],
@@ -192,8 +195,17 @@ def handle_client(conn: socket.socket, addr):
         # Start the Lens off in sync with the current difficulty.
         broadcast(dda.params())
 
+        # See main-nodeps.py: a preview restart leaves the old socket open with
+        # nobody on the other end, so without a timeout this thread blocks for
+        # ever and the dead client is never dropped from the list.
+        conn.settimeout(IDLE_PING_INTERVAL)
+
         while True:
-            frame = read_frame(conn)
+            try:
+                frame = read_frame(conn)
+            except socket.timeout:
+                conn.sendall(b'\x89\x00')      # ping, empty payload
+                continue
             if frame is None:
                 break
             opcode, payload = frame
@@ -226,6 +238,8 @@ def handle_client(conn: socket.socket, addr):
                     mock_stats["hits"] += 1
                 if isinstance(data.get('mood'), str):
                     mock_stats["mood"] = data['mood']
+                if isinstance(data.get('score'), (int, float)):
+                    mock_stats["score"] = int(data['score'])
                 dda.record_result(hit)
                 params = dda.params()
                 print('  <- result %s   ratio %.2f, difficulty %.2f'
