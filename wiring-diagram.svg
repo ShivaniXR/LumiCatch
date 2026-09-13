@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 700" font-family="Arial, Helvetica, sans-serif">
-  <rect width="960" height="700" fill="#0e1420"/>
-  <text x="480" y="36" fill="#ffffff" font-size="22" text-anchor="middle" font-weight="bold">LumiCatch Net - Wiring (Arduino UNO Q, 3.3 V logic)</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 700" font-family="Arial, Helvetica, sans-serif">
+  <rect width="1080" height="700" fill="#0e1420"/>
+  <text x="480" y="36" fill="#ffffff" font-size="22" text-anchor="middle" font-weight="bold">Neon-Net - Wiring (Arduino UNO Q, 3.3 V logic)</text>
 
   <!-- UNO Q board -->
   <rect x="60" y="90" width="260" height="420" rx="10" fill="#1b4b8f" stroke="#7fb2ff" stroke-width="2"/>
@@ -34,7 +34,7 @@
   <path d="M326 300 H470 V305 H560" stroke="#4dff88" stroke-width="3" fill="none"/>
 
   <!-- Transistor circuit -->
-  <text x="640" y="392" fill="#ffffff" font-size="16" font-weight="bold">Haptic driver (on mini breadboard)</text>
+  <text x="640" y="392" fill="#ffffff" font-size="16" font-weight="bold">Haptic driver (mini breadboard)</text>
 
   <!-- 1k resistor -->
   <rect x="420" y="368" width="80" height="22" rx="4" fill="#c9812f" stroke="#ffd8a0"/>
@@ -46,7 +46,7 @@
   <circle cx="600" cy="440" r="38" fill="#12324f" stroke="#8fd0ff" stroke-width="2"/>
   <text x="600" y="428" fill="#ffffff" font-size="13" text-anchor="middle" font-weight="bold">2N2222</text>
   <text x="600" y="444" fill="#a9c6ff" font-size="11" text-anchor="middle">NPN</text>
-  <text x="600" y="500" fill="#ffd24d" font-size="11" text-anchor="middle">flat face toward you: E B C</text>
+  <text x="600" y="512" fill="#ffd24d" font-size="11" text-anchor="middle">flat face toward you: E B C</text>
   <text x="548" y="418" fill="#ffffff" font-size="12">B</text>
   <text x="612" y="392" fill="#ffffff" font-size="12">C</text>
   <text x="612" y="498" fill="#ffffff" font-size="12">E</text>

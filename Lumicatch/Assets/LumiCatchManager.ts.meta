@@ -54,6 +54,7 @@
     cohesionSpooked: false
     comboMax: false
     comboWindowS: false
+    countdownSeconds: false
     creatureCount: false
     creatureOpacity: false
     creatureParent: false
@@ -69,22 +70,28 @@
     fleeSpeedCm: false
     forwardSign: false
     gentleSwingG: false
+    glassAlpha: false
+    glassTintB: false
+    glassTintG: false
+    glassTintR: false
     guaranteeDelayS: false
     guaranteeEasyTarget: false
     heroDistanceCm: false
+    horizontalShare: false
     hudDistanceCm: false
+    hudShoalYCm: false
+    hudTopYCm: false
     hudWidthCm: false
     hudYCm: false
     internetModule: false
+    labelSpacing: false
     leashMaxCm: false
     lungeRangeCm: false
     lungeSpookCm: false
+    maxTiltDeg: false
     mercyMisses: false
     mercySeconds: false
     modelUprightDeg: false
-    moodFaceCalm: false
-    moodFaceCurious: false
-    moodFaceSpooked: false
     moodFaceText: false
     nearbyCooldownS: false
     nearbyRangeCm: false
@@ -133,6 +140,7 @@
     startTitle: false
     startTitleLabel: false
     startTitleText: false
+    swimClipSeconds: false
     swimSpeed: false
     tiltVarietyDeg: false
     useMercy: false
@@ -203,6 +211,8 @@
       modelUprightDeg: !<float> 90.000000
       creatureOpacity: 0.550000
       tiltVarietyDeg: !<float> 16.000000
+      horizontalShare: 0.300000
+      maxTiltDeg: !<float> 85.000000
       driftAmplitudeCm: !<float> 22.000000
       driftEaseRate: 1.200000
       fleeSpeedCm: !<float> 130.000000
@@ -211,6 +221,7 @@
       alertRangeCm: !<float> 55.000000
       alertHoldS: 0.220000
       leashMaxCm: !<float> 260.000000
+      swimClipSeconds: 4.125000
       swimSpeed: 2.200000
       pulseAmount: 0.120000
       spinRate: 0.350000
@@ -239,9 +250,6 @@
       predictFlashText: !<reference.Text> 00000000-0000-0000-0000-000000000000
       catchPopupText: !<reference.Text> 00000000-0000-0000-0000-000000000000
       difficultyLabelText: !<reference.Text> 00000000-0000-0000-0000-000000000000
-      moodFaceCalm: ^_^
-      moodFaceCurious: o_o
-      moodFaceSpooked: ">_<"
       hudDistanceCm: !<float> 100.000000
       hudWidthCm: !<float> 34.000000
       hudYCm: !<float> -22.000000
@@ -258,6 +266,14 @@
       attractDim: 0.300000
       plateRadius: 2.200000
       plateMargin: 2.400000
+      glassTintR: 0.340000
+      glassTintG: 0.660000
+      glassTintB: 0.780000
+      glassAlpha: 0.300000
+      hudTopYCm: !<float> 19.000000
+      hudShoalYCm: !<float> -22.000000
+      labelSpacing: 1.600000
+      countdownSeconds: !<float> 3.000000
       useMercy: true
       mercyMisses: !<float> 2.000000
       mercySeconds: !<float> 6.000000
@@ -281,7 +297,7 @@
     - // @input Asset.AudioTrackAsset captureTrack
     - // @input Asset.AudioTrackAsset ambientTrack
     - // @input float captureVolume = 1
-    - // @input float ambientVolume = 0.4
+    - // @input float ambientVolume
     - '// @input string serverUrl = "ws://192.168.1.50:8765"'
     - // @input bool simulate = true
     - // @input bool usePinchToSwing = true
@@ -322,6 +338,8 @@
     - // @input float modelUprightDeg
     - // @input float creatureOpacity = 0.55
     - // @input float tiltVarietyDeg = 16
+    - // @input float horizontalShare = 0.3
+    - // @input float maxTiltDeg = 85
     - // @input float driftAmplitudeCm = 22
     - // @input float driftEaseRate = 1.2
     - // @input float fleeSpeedCm = 130
@@ -330,8 +348,9 @@
     - // @input float alertRangeCm = 55
     - // @input float alertHoldS = 0.22
     - // @input float leashMaxCm = 260
-    - // @input float swimSpeed = 2.2
-    - // @input float pulseAmount = 0.07
+    - // @input float swimClipSeconds = 4.125
+    - // @input float swimSpeed = 1.4
+    - // @input float pulseAmount
     - // @input float spinRate = 0.35
     - // @input bool useWorldMesh = true
     - // @input float wallMarginCm = 25
@@ -358,9 +377,6 @@
     - // @input Component.Text predictFlashText
     - // @input Component.Text catchPopupText
     - // @input Component.Text difficultyLabelText
-    - '// @input string moodFaceCalm = "^_^"'
-    - '// @input string moodFaceCurious = "o_o"'
-    - '// @input string moodFaceSpooked = ">_<"'
     - // @input float hudDistanceCm = 100
     - // @input float hudWidthCm = 30
     - // @input float hudYCm = -20
@@ -375,8 +391,16 @@
     - '// @input string startTitleLabel = "NEON-NET"'
     - '// @input string startButtonLabel = "BEGIN"'
     - // @input float attractDim = 0.45
-    - // @input float plateRadius = 2.2
-    - // @input float plateMargin = 2.4
+    - // @input float plateRadius = 3.4
+    - // @input float plateMargin = 3
+    - // @input float glassTintR = 0.34
+    - // @input float glassTintG = 0.66
+    - // @input float glassTintB = 0.78
+    - // @input float glassAlpha = 0.3
+    - // @input float hudTopYCm = 25
+    - // @input float hudShoalYCm = -22
+    - // @input float labelSpacing
+    - // @input float countdownSeconds = 3
     - // @input bool useMercy = true
     - // @input float mercyMisses = 2
     - // @input float mercySeconds = 6

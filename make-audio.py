@@ -74,20 +74,34 @@ def capture_chime():
 
 
 def ambient_deep():
-    '''
-    A slow underwater bed. Eight seconds, and every frequency below completes
-    a whole number of cycles in that window, so the loop point is silent.
-    '''
+    """
+    A slow underwater bed, pitched for the hardware rather than for headphones.
+
+    The first version of this was built from 55, 82.5 and 110 Hz, which put 96
+    per cent of its energy at or below 110 Hz. It sounded superb on a laptop
+    and awful on the glasses: Spectacles' speakers are tiny and cannot move air
+    at those frequencies, so instead of a deep hum you get the driver
+    distorting, which is heard as a rattling, wobbling artefact.
+
+    Everything here now sits between 220 and 880 Hz, where the speakers are
+    actually capable, and the underwater feeling comes from the slow swells and
+    the close intervals rather than from depth.
+
+    Eight seconds, and every frequency completes a whole number of cycles in
+    that window, so the loop point is silent. All values are multiples of
+    0.125 Hz for exactly that reason.
+    """
     dur = 8.0
     n = int(RATE * dur)
     out = []
-    # (freq, amplitude) - all multiples of 0.125 Hz so they close the loop
+    # (freq, amplitude). A low drone with a fifth and an octave over it, plus
+    # two quiet upper voices for movement.
     voices = [
-        (55.0,  0.30),
-        (82.5,  0.18),
-        (110.0, 0.13),
-        (164.5, 0.06),
-        (220.0, 0.04),
+        (220.0, 0.26),
+        (330.0, 0.15),
+        (440.0, 0.11),
+        (587.0, 0.05),
+        (660.0, 0.04),
     ]
     for i in range(n):
         t = i / RATE
@@ -98,7 +112,7 @@ def ambient_deep():
         for freq, amp in voices:
             v += amp * math.sin(2 * math.pi * freq * t)
         # a high shimmer, very quiet, gives it some air
-        v += 0.015 * math.sin(2 * math.pi * 660.0 * t) * lfo_b
+        v += 0.012 * math.sin(2 * math.pi * 880.0 * t) * lfo_b
         out.append(v * lfo_a * 0.5)
     return out
 

@@ -131,7 +131,7 @@ claimed. Two shots:
 | Mini breadboard, 170 point | 1 | no power rails |
 | Jumper wires | ~20 | male-male and male-female both needed |
 | USB-C power bank | 1 | also acts as handle counterweight |
-| Toy butterfly net | 1 | |
+| Aquarium fish net | 1 | the kind used to scoop fish out of a tank |
 | Snap Spectacles (2024) | 1 | |
 
 **Software**

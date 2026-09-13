@@ -94,7 +94,14 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input('Asset.AudioTrackAsset') @allowUndefined captureTrack: AudioTrackAsset;
   @input('Asset.AudioTrackAsset') @allowUndefined ambientTrack: AudioTrackAsset;
   @input captureVolume: number = 1.0;
-  @input ambientVolume: number = 0.4;
+  // Ambient bed, OFF by default.
+  //
+  // It was a continuous drone and, played over a laptop while developing, it
+  // reads as white noise and is genuinely unpleasant to sit next to for hours.
+  // It also earns less than it costs: the spatialised capture chime is what
+  // carries the audio design, because it tells you WHERE the catch happened.
+  // Raise this if a filmed take wants atmosphere under it.
+  @input ambientVolume: number = 0.0;
 
   @input serverUrl: string = 'ws://192.168.1.50:8765';
   @input simulate: boolean = true;
@@ -173,9 +180,14 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input rareChance: number = 0.22;
   @input skittishChance: number = 0.35;
   // Tuned against the skeleton, measured: the creature spans 33.2 cm tall at
-  // scale 0.10, so 0.06 puts it at roughly 20 cm, about a large grapefruit.
-  // Big enough to read at 1 to 3 m on a 27 degree display, and comfortably
-  // smaller than the net hoop so catches look precise.
+  // scale 0.10, so 0.055 puts it at roughly 20 cm, about a large grapefruit.
+  // Big enough to read at 1 to 3 m on a 27 degree display.
+  //
+  // CAUTION: 20 cm was chosen while the prop was believed to be a butterfly
+  // net with a hoop around 30 cm across. It is an AQUARIUM FISH NET, whose
+  // hoop is more like 10 to 15 cm, so the creature is currently WIDER THAN THE
+  // NET. Catching something bigger than your net looks wrong on camera.
+  // Re-decide this against the real hoop before filming.
   //
   // Do NOT tune this against a bounding box. worldAabbMin/Max on a skinned
   // mesh returns the rest pose, which for this model is a flat wide slab and
@@ -225,10 +237,14 @@ export class LumiCatchManager extends BaseScriptComponent {
   // jellyfish rather than a balloon.
   @input creatureOpacity: number = 0.55;
 
-  // Jellyfish do not hang in a rigid grid, they drift at slight angles. A few
-  // degrees of lean, fixed per creature so it does not wobble, stops the shoal
-  // looking like a formation. 0 makes every one perfectly vertical.
+  // Jellyfish do not hang in a rigid grid, they drift at all sorts of angles.
+  // `tiltVarietyDeg` is the gentle lean given to the upright majority;
+  // `horizontalShare` is the fraction that instead loll over onto their sides,
+  // up to `maxTiltDeg`. Set horizontalShare to 0 for a shoal that is all
+  // upright, or tiltVarietyDeg to 0 as well for a rigid formation.
   @input tiltVarietyDeg: number = 16;
+  @input horizontalShare: number = 0.3;
+  @input maxTiltDeg: number = 85;
 
   // ---- Movement ----
   @input driftAmplitudeCm: number = 22;
@@ -241,18 +257,21 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input leashMaxCm: number = 260;
 
   // ---- Look ----
-  // How fast to play the model's own swim cycle. 1.0 is the clip as authored,
-  // which is far too slow to see at this size. 0 leaves it untouched.
-  @input swimSpeed: number = 2.2;
+  // The swim clip's real length in seconds, used to repair what the importer
+  // got wrong. See desyncAnimation: Lens Studio imports this 4.125 s animation
+  // with end = 0.1375, so the player loops a 137 ms sliver and the creature
+  // barely moves. 0 leaves the imported value alone.
+  @input swimClipSeconds: number = 4.125;
 
-  // A whole-body breathing pulse, on top of the skeletal swim.
-  //
-  // This was 0.12 for the spheres, then set to 0 on the grounds that a real
-  // animation made it redundant. That was wrong: measuring the skeleton showed
-  // the swim cycle moves about 1.6 cm in 1.6 s, which is invisible on a 20 cm
-  // creature at arm's length on this display. A small scale pulse is what
-  // actually makes the shoal look alive, so it is back, gentler than before.
-  @input pulseAmount: number = 0.07;
+  // How fast to play the swim cycle. 1.0 is the clip as authored.
+  @input swimSpeed: number = 1.4;
+
+  // A whole-body breathing pulse, from the sphere days when there was no real
+  // animation. Now 0: with the clip length repaired the skeletal swim moves
+  // the bell through about 4 per cent of the creature's own size, and a scale
+  // pulse on top of that reads as inflation rather than breathing. Kept as an
+  // input for a creature prefab with no animation of its own.
+  @input pulseAmount: number = 0.0;
   @input spinRate: number = 0.35;            // radians per second
 
   // ---- Room bounds ----
@@ -305,12 +324,6 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input('Component.Text') @allowUndefined catchPopupText: Text;
   @input('Component.Text') @allowUndefined difficultyLabelText: Text;
 
-  // Faces as plain characters rather than emoji, because the default Lens
-  // Studio font has no emoji glyphs and you would get empty boxes. Change
-  // these in the Inspector if your font does support them.
-  @input moodFaceCalm: string = '^_^';
-  @input moodFaceCurious: string = 'o_o';
-  @input moodFaceSpooked: string = '>_<';
   @input hudDistanceCm: number = 100;   // sits on the 1 m focus plane
   @input hudWidthCm: number = 30;       // how far apart the corner readouts sit
   @input hudYCm: number = -20;
@@ -330,8 +343,39 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input startTitleLabel: string = 'NEON-NET';
   @input startButtonLabel: string = 'BEGIN';
   @input attractDim: number = 0.45;     // creature brightness before starting
-  @input plateRadius: number = 2.2;     // corner rounding on title and button
-  @input plateMargin: number = 2.4;
+  @input plateRadius: number = 3.4;     // corner rounding, generous reads softer
+  @input plateMargin: number = 3.0;
+
+  // ---- UI ----
+  //
+  // Spectacles is an ADDITIVE display: black is transparent, so a dark panel
+  // occludes nothing and on the glasses is very nearly invisible. It only
+  // looked like frosted glass in the preview, which composites over a bright
+  // photo of a room. A panel that works on this hardware has to ADD light, so
+  // the glass here is a pale cool tint at low alpha, with bright text on top.
+  @input glassTintR: number = 0.34;
+  @input glassTintG: number = 0.66;
+  @input glassTintB: number = 0.78;
+  @input glassAlpha: number = 0.30;     // panel strength behind ordinary text
+  // The score and clock bar. Spectacles is about 39 degrees vertically, so at
+  // the 100 cm focus plane the top edge is near 35 cm: past about 30 this
+  // starts to clip on device even though the wider preview camera still shows
+  // it. 25 sits high without living on the edge.
+  @input hudTopYCm: number = 25;
+
+  // The shoal chip, centre bottom. Keep this inside about -26: past that it
+  // leaves the eyebox on the glasses while still looking fine in the preview.
+  @input hudShoalYCm: number = -22;
+  // Letter spacing, off by default.
+  //
+  // Tracked capitals were tried and cut: at 5.0 the wordmark came apart
+  // entirely, and even at 0.5 the whole interface read as too spaced out. The
+  // input stays so it can be dialled in a little if wanted, but the default is
+  // the typeface as drawn. Note the value is in text units and is then
+  // multiplied by the object's scale, so the title feels it about twice as
+  // hard as the button does.
+  @input labelSpacing: number = 0.0;
+  @input countdownSeconds: number = 3;  // 0 skips the 3-2-1 entirely
 
   // ---- Demo safeguards ----
   @input useMercy: boolean = true;
@@ -370,7 +414,9 @@ export class LumiCatchManager extends BaseScriptComponent {
   private comboUntil: number = -1;
   private bloomActive: boolean = false;
   private bloomAnnounced: boolean = false;
-  private firstSpan: vec3 = null;      // for the animation check at startup
+  private firstSig: number = -1;       // for the animation check at startup
+  private animWarned: boolean = false;
+  private sizeRetries: number = 0;
   private schoolAngle: number[] = [];
   private schoolCentre: vec3[] = [];
 
@@ -398,6 +444,7 @@ export class LumiCatchManager extends BaseScriptComponent {
   private roundOver: boolean = false;
   private bestScore: number = 0;
   private pressT: number = -1;          // button press animation, seconds
+  private countdownLeft: number = -1;   // 3-2-1 before the round, seconds
   private startMats: Material[] = [null, null];   // button body, title
 
   onAwake() {
@@ -804,9 +851,18 @@ export class LumiCatchManager extends BaseScriptComponent {
       return;
     }
     it.onTriggerEnd.add(() => {
-      if (!this.started) {
+      if (!this.started && this.countdownLeft < 0) {
         this.pressT = 0;
-        this.beginGame();
+        if (this.countdownSeconds > 0) {
+          // A beat between pressing and playing. It gives the player time to
+          // raise the net and look up, and it gives a filmed take a clean
+          // in-point instead of starting mid-fumble.
+          this.countdownLeft = this.countdownSeconds;
+          this.sendHaptic(1);
+          print('LumiCatch: countdown');
+        } else {
+          this.beginGame();
+        }
       }
     });
     print('LumiCatch: start button armed');
@@ -870,6 +926,7 @@ export class LumiCatchManager extends BaseScriptComponent {
     this.bloomAnnounced = false;
     this.comboCount = 0;
     this.comboUntil = -1;
+    this.countdownLeft = -1;
 
     // Bloom spawns survive until they are caught, so without this every round
     // starts more crowded than the one before it.
@@ -904,6 +961,31 @@ export class LumiCatchManager extends BaseScriptComponent {
    * a built in background with a corner radius, which is a far better way to
    * get rounded edges than trying to build them from a box mesh.
    */
+  /**
+   * A frosted panel behind text.
+   *
+   * Pale, not dark. Spectacles is an additive display, so black is transparent
+   * and a dark panel occludes nothing: the old near-black plate only looked
+   * like glass in the preview, which composites over a bright photo of a room.
+   * A panel that works on this hardware has to ADD light. `strength` scales the
+   * base alpha, so a primary panel can sit forward of a secondary one without
+   * bringing in a second colour.
+   */
+  private glass(t: Text, strength: number, radius: number, margin: number) {
+    this.plate(
+      t,
+      new vec4(this.glassTintR, this.glassTintG, this.glassTintB, 1),
+      Math.min(1, this.glassAlpha * strength),
+      radius,
+      margin
+    );
+  }
+
+  /** Small capitals, tracked out. The cheapest typography that reads as care. */
+  private tracked(t: Text, spacing: number) {
+    t.letterSpacing = spacing;
+  }
+
   private plate(t: Text, col: vec4, alpha: number, radius: number, margin: number) {
     const bg = t.backgroundSettings;
     bg.enabled = true;
@@ -915,39 +997,83 @@ export class LumiCatchManager extends BaseScriptComponent {
     bg.fill.color = new vec4(col.r, col.g, col.b, alpha);
   }
 
+  /** Run the 3-2-1, then start the round. */
+  private updateCountdown(dt: number) {
+    if (this.countdownLeft < 0) return;
+    const before = Math.ceil(this.countdownLeft);
+    this.countdownLeft -= dt;
+    const after = Math.ceil(this.countdownLeft);
+    // One tick per whole number, so 3, 2 and 1 each get a pulse.
+    if (after !== before && after > 0) this.sendHaptic(1);
+    if (this.countdownLeft <= 0) {
+      this.countdownLeft = -1;
+      this.sendHaptic(3);
+      this.beginGame();
+    }
+  }
+
   private updateStartScreen(dt: number) {
+    const counting = this.countdownLeft >= 0;
+    // The panel stays up through the countdown, but only the number on it.
     const showing = this.requireStart && !this.started;
 
-    // Title
+    // Title, which doubles as the countdown and as the result headline.
     if (this.startTitle) this.startTitle.enabled = showing;
     if (this.startTitleText && showing) {
       const t = this.startTitleText.getSceneObject().getTransform();
-      t.setLocalPosition(new vec3(0, 16, -this.hudDistanceCm));
-      t.setLocalScale(new vec3(1.9, 1.9, 1.9));
-      this.startTitleText.text = this.roundOver
-        ? 'SCORE  ' + this.score
-        : this.startTitleLabel;
+      // The countdown number sits at eye level and large. The title sits
+      // higher, because it has a button and a status line beneath it.
+      const big = counting ? 3.4 : 1.9;
+      t.setLocalPosition(new vec3(0, counting ? 4 : 16, -this.hudDistanceCm));
+      t.setLocalScale(new vec3(big, big, big));
+
+      if (counting) {
+        const n = Math.ceil(this.countdownLeft);
+        this.startTitleText.text = n > 0 ? '' + n : 'GO';
+        this.tracked(this.startTitleText, 0);
+      } else {
+        this.startTitleText.text = this.roundOver
+          ? 'SCORE  ' + this.score
+          : this.startTitleLabel;
+        // The wordmark is tracked out hard. It is the one place in the game
+        // where the type is doing the work rather than reporting a number.
+        this.tracked(this.startTitleText, this.labelSpacing);
+      }
+
       this.startTitleText.textFill.color = new vec4(
         COL_DRIFTER.r, COL_DRIFTER.g, COL_DRIFTER.b, 1
       );
-      // Dark rounded backplate, so the title reads against drifting creatures.
-      this.plate(
-        this.startTitleText,
-        new vec4(0.02, 0.07, 0.10, 1),
-        0.72,
-        this.plateRadius,
-        this.plateMargin
-      );
+      if (counting) {
+        // The countdown gets no panel. It is one big glyph on an empty view,
+        // and a plate around it only boxes in something that reads perfectly
+        // well on its own.
+        this.startTitleText.backgroundSettings.enabled = false;
+      } else {
+        // Frosted panel, so the title reads against the room. Wider margins
+        // than the HUD bar, because this is the first thing seen.
+        this.glass(
+          this.startTitleText,
+          1.25,
+          this.plateRadius * 1.4,
+          this.plateMargin * 1.6
+        );
+      }
     }
 
-    // Status
+    // Status. Hidden through the countdown: once you have pressed BEGIN the
+    // connection state is no longer your problem.
     if (this.startStatusText) {
-      this.startStatusText.getSceneObject().enabled = showing;
-      if (showing) {
+      this.startStatusText.getSceneObject().enabled = showing && !counting;
+      if (showing && !counting) {
         const t = this.startStatusText.getSceneObject().getTransform();
         t.setLocalPosition(new vec3(0, -14, -this.hudDistanceCm));
         t.setLocalScale(new vec3(0.75, 0.75, 0.75));
         this.startStatusText.text = this.startStatusLine();
+        this.tracked(this.startStatusText, this.labelSpacing);
+        // Barely there. It is a footnote, not a headline.
+        this.glass(
+          this.startStatusText, 0.55, this.plateRadius, this.plateMargin * 0.9
+        );
         const ok = this.simulate || this.connected;
         const c = ok ? COL_DRIFTER : COL_LUMEN;
         // A slow pulse while searching, steady once connected.
@@ -956,10 +1082,10 @@ export class LumiCatchManager extends BaseScriptComponent {
       }
     }
 
-    // Button
+    // Button, also gone once the countdown starts.
     if (this.startButton) {
-      this.startButton.enabled = showing;
-      if (showing) {
+      this.startButton.enabled = showing && !counting;
+      if (showing && !counting) {
         let press = 0;
         if (this.pressT >= 0) {
           this.pressT += dt;
@@ -980,14 +1106,18 @@ export class LumiCatchManager extends BaseScriptComponent {
     }
 
     if (this.startButtonText) {
-      this.startButtonText.getSceneObject().enabled = showing;
-      if (showing) {
+      this.startButtonText.getSceneObject().enabled = showing && !counting;
+      if (showing && !counting) {
         const t = this.startButtonText.getSceneObject().getTransform();
         t.setLocalPosition(new vec3(0, 2, -this.hudDistanceCm + 2));
         t.setLocalScale(new vec3(0.8, 0.8, 0.8));
         this.startButtonText.text = this.roundOver
           ? 'PLAY AGAIN'
           : this.startButtonLabel;
+        this.tracked(this.startButtonText, this.labelSpacing);
+        // Dark type on a bright panel. The one place in the interface where
+        // the contrast runs that way round, which is what marks it out as the
+        // thing you touch.
         this.startButtonText.textFill.color = new vec4(0.02, 0.06, 0.08, 1);
 
         let press = 0;
@@ -1002,8 +1132,8 @@ export class LumiCatchManager extends BaseScriptComponent {
             1
           ),
           Math.min(1, 0.88 + press * 0.12),
-          this.plateRadius,
-          this.plateMargin * 1.5
+          this.plateRadius * 1.6,
+          this.plateMargin * 1.8
         );
       }
     }
@@ -1049,31 +1179,45 @@ export class LumiCatchManager extends BaseScriptComponent {
     // Readouts belong to play, not to the start or result screen.
     const showGame = !this.requireStart || (this.started && !this.roundOver);
     const col = this.moodColour();
-    const half = this.hudWidthCm * 0.5;
-    // The bottom row of readouts. This used to be measured down from the
-    // strand's droop; with the strand gone it is a plain offset, chosen to
-    // leave the row exactly where players were already used to seeing it.
-    const rowY = this.hudYCm - 9.5;
 
-    // ---- mood, as a face plus a word, bottom left ----
+    // ---- the shoal chip: mood and alertness, one element, top band ----
+    //
+    // These used to be two readouts and both failed, for different reasons.
+    //
+    // They were also the wrong shape. Mood and alertness are not two facts,
+    // they are one fact at two timescales: what the shoal is feeling now, and
+    // how wary the difficulty AI has made it overall. Splitting them made the
+    // player do the joining. One chip states it once.
+    //
+    // The face went with them. The default font has no emoji, so a 'face' can
+    // only be punctuation, and punctuation faces read as chat rather than as
+    // instrumentation at this size. The mood is carried by the word and by the
+    // colour, which is the same cyan, violet and gold the creatures use.
     if (this.moodFaceText) {
       const o = this.moodFaceText.getSceneObject();
       o.enabled = showGame;
       if (showGame) {
         const t = o.getTransform();
+        // Centre bottom. The score and clock own the top band; the shoal's
+        // state is ambient rather than something you read on a schedule, so it
+        // sits opposite them with the whole aiming zone left clear between.
+        //
+        // hudShoalYCm, not the old -29.5: at 39 degrees vertical that was 84
+        // per cent of the way to the bottom edge, comfortable in the preview's
+        // wider camera and off the edge of the eyebox on the glasses.
         t.setLocalPosition(
-          new vec3(-half + 4, rowY, -this.hudDistanceCm)
+          new vec3(0, this.hudShoalYCm, -this.hudDistanceCm)
         );
         t.setLocalScale(new vec3(0.62, 0.62, 0.62));
-        const face =
-          this.mood === MOOD_SPOOKED ? this.moodFaceSpooked
-          : this.mood === MOOD_CURIOUS ? this.moodFaceCurious
-          : this.moodFaceCalm;
         const word =
           this.mood === MOOD_SPOOKED ? 'SPOOKED'
           : this.mood === MOOD_CURIOUS ? 'CURIOUS' : 'CALM';
-        this.moodFaceText.text = face + '  ' + word;
+        this.moodFaceText.text =
+          'SHOAL  ' + word + '  ' + Math.round(this.hudLevel() * 100) + '%';
         this.moodFaceText.textFill.color = new vec4(col.r, col.g, col.b, 1);
+        this.glass(
+          this.moodFaceText, 0.7, this.plateRadius, this.plateMargin * 0.9
+        );
       }
     }
 
@@ -1092,10 +1236,14 @@ export class LumiCatchManager extends BaseScriptComponent {
       o.enabled = showGame && k > 0.01;
       if (o.enabled) {
         const t = o.getTransform();
+        // Centred and just below the aiming line, not down in the corner
+        // where it was before: at 39 degrees vertical the old row sat 84 per
+        // cent of the way to the bottom edge, which is inside the preview's
+        // wider camera and outside comfortable reading on the glasses.
         t.setLocalPosition(
-          new vec3(half - 4, rowY, -this.hudDistanceCm)
+          new vec3(0, this.hudShoalYCm + 8, -this.hudDistanceCm)
         );
-        t.setLocalScale(new vec3(0.58, 0.58, 0.58));
+        t.setLocalScale(new vec3(0.52, 0.52, 0.52));
         this.predictFlashText.text = this.predictLabel;
         // White, so it is unmistakably not the mood colour.
         this.predictFlashText.textFill.color = new vec4(1, 1, 1, k);
@@ -1129,57 +1277,66 @@ export class LumiCatchManager extends BaseScriptComponent {
       }
     }
 
-    // ---- a small label so the strand is not a mystery ----
+    // The separate alertness label is gone: it is the percentage in the shoal
+    // chip above. It was unreadable anyway, at 0.42 scale and 0.75 alpha, a
+    // small dim line competing with everything else. The input is kept so the
+    // object can be given a job later rather than being deleted from a scene
+    // that is about to be filmed.
     if (this.difficultyLabelText) {
-      const o = this.difficultyLabelText.getSceneObject();
-      o.enabled = showGame;
-      if (showGame) {
-        const t = o.getTransform();
-        t.setLocalPosition(
-          new vec3(0, this.hudYCm + 4.5, -this.hudDistanceCm)
-        );
-        t.setLocalScale(new vec3(0.42, 0.42, 0.42));
-        this.difficultyLabelText.text =
-          'SHOAL ALERTNESS  ' + Math.round(this.hudLevel() * 100) + '%';
-        this.difficultyLabelText.textFill.color =
-          new vec4(col.r, col.g, col.b, 0.75);
-      }
+      this.difficultyLabelText.getSceneObject().enabled = false;
     }
 
     // The whispered mood line ('the shoal scatters') used to sit here. It said
     // the same thing as the mood face two lines above and now shared its row,
     // so it was cut rather than left to overlap.
 
-    // Score sits above the readout row, script owned like everything else.
+    // The score and clock bar, top of the view, on its own panel.
+    //
+    // It used to sit low, below centre, which put the clock exactly where you
+    // are not looking while lining up a creature. At the top it is the first
+    // thing the eye finds and it never competes with the shoal. The object is
+    // now explicitly enabled and disabled too, so a stale score cannot sit on
+    // the start screen.
     if (this.scoreText) {
+      this.scoreText.getSceneObject().enabled = showGame;
       // Score and clock on one line, so there is only one thing to read.
-      if (this.started && this.roundSeconds > 0) {
-        // A live chain sits between the score and the clock, with the dots
-        // draining as its window closes. Nothing is shown when no chain is
-        // running, so the line stays quiet most of the time.
-        let mid = '     ';
-        if (this.comboCount > 1 && this.elapsed < this.comboUntil) {
-          const left = (this.comboUntil - this.elapsed) / this.comboWindowS;
-          let dots = '';
-          const ticks = Math.max(1, Math.ceil(left * 3));
-          for (let i = 0; i < ticks; i++) dots += '.';
-          mid =
-            '   x' + Math.min(this.comboCount, this.comboMax) + ' ' + dots + '   ';
-        }
-        this.scoreText.text =
-          'Score  ' + this.score + mid + Math.ceil(this.roundLeft) + 's';
+      if (showGame && this.roundSeconds > 0) {
+        // Score and clock only. A live chain indicator used to sit between
+        // them and it made the bar restless: the one element you glance at
+        // mid-swing was changing width and content on its own. The chain is
+        // still reported where it is actually earned, in the catch popup.
+        const mid = '      ';
+        // m:ss rather than a bare count. '9s' and '59s' are different widths,
+        // so a bare number makes the whole bar twitch as it counts down.
+        const total = Math.max(0, Math.ceil(this.roundLeft));
+        const ss = total % 60;
+        const clock =
+          Math.floor(total / 60) + ':' + (ss < 10 ? '0' + ss : '' + ss);
+        this.scoreText.text = 'SCORE  ' + this.score + mid + clock;
+        this.tracked(this.scoreText, this.labelSpacing);
+
         // Gold for the last ten seconds, and for the whole bloom, so the
         // finale is visible on the score line as well as felt.
         const urgent = this.roundLeft <= 10 || this.bloomActive;
         const c = urgent ? COL_LUMEN : COL_DRIFTER;
         const k = urgent ? 0.7 + 0.3 * Math.sin(this.elapsed * 7.0) : 1.0;
         this.scoreText.textFill.color = new vec4(c.r, c.g, c.b, k);
+
+        // The panel itself brightens with urgency, so the last ten seconds
+        // are felt in the bar and not only read in its colour.
+        this.glass(
+          this.scoreText,
+          urgent ? 1.5 : 1.0,
+          this.plateRadius,
+          this.plateMargin
+        );
+
+        const st = this.scoreText.getSceneObject().getTransform();
+        st.setLocalPosition(new vec3(0, this.hudTopYCm, -this.hudDistanceCm));
+        st.setLocalScale(
+          new vec3(this.scoreScale, this.scoreScale, this.scoreScale)
+        );
       }
-      const st = this.scoreText.getSceneObject().getTransform();
-      st.setLocalPosition(new vec3(0, this.hudYCm + 11, -this.hudDistanceCm));
-      st.setLocalScale(
-        new vec3(this.scoreScale, this.scoreScale, this.scoreScale)
-      );
     }
   }
 
@@ -1314,6 +1471,12 @@ export class LumiCatchManager extends BaseScriptComponent {
     return null;
   }
 
+  /** Deterministic 0..1 from any number, for per-creature variety. */
+  private hash01(x: number): number {
+    const s = Math.sin(x * 127.1 + 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  }
+
   /** Gather the world position of every bone at or below an object. */
   private collectBones(obj: SceneObject, out: vec3[]) {
     out.push(obj.getTransform().getWorldPosition());
@@ -1365,16 +1528,62 @@ export class LumiCatchManager extends BaseScriptComponent {
    */
   private desyncAnimation(obj: SceneObject) {
     const player = this.findAnimation(obj);
-    if (!player) return;
+    if (!player) {
+      if (!this.animWarned) {
+        this.animWarned = true;
+        print('LumiCatch: creature has no AnimationPlayer at all.');
+      }
+      return;
+    }
     const clips = player.clips;
-    if (!clips || clips.length === 0) return;
+    if (!clips || clips.length === 0) {
+      if (!this.animWarned) {
+        this.animWarned = true;
+        print('LumiCatch: AnimationPlayer found but it has no clips.');
+      }
+      return;
+    }
     const clip = clips[0];
+    const first = !this.animWarned;
+    if (first) {
+      this.animWarned = true;
+      print(
+        'LumiCatch: anim clip "' + clip.name + '" clips=' + clips.length +
+        ' begin=' + clip.begin + ' end=' + clip.end +
+        ' mode=' + clip.playbackMode + ' speed=' + clip.playbackSpeed +
+        ' weight=' + clip.weight +
+        ' playing=' + player.getClipIsPlaying(clip.name) +
+        ' active=[' + player.getActiveClips().join(',') + ']'
+      );
+    }
     // The model's swim cycle is 4.12 s, which is graceful and, at 20 cm on a
     // 27 degree display, imperceptible: measured, the whole skeleton moves
     // about 1.6 cm in 1.6 s. Speeding the clip up is what makes the creature
     // read as alive rather than as a static prop.
+    // Repair the clip's length before playing it.
+    //
+    // The glTF's animation is 4.125 s long. Lens Studio's importer brings it in
+    // with end = 0.1375, which is 4.125 / 30: it has read the keyframe times,
+    // which glTF specifies in SECONDS, as frames and then divided by 30 fps.
+    // The player therefore loops a 137 millisecond sliver of the swim cycle,
+    // which holds the creature very nearly still. That is why the jellyfish
+    // looked static while every other check said the animation was fine.
+    if (this.swimClipSeconds > 0) {
+      clip.begin = 0;
+      clip.end = this.swimClipSeconds;
+    }
+    clip.playbackMode = PlaybackMode.Loop;
     if (this.swimSpeed > 0) clip.playbackSpeed = this.swimSpeed;
+    player.setClipEnabled(clip.name, true);
     player.playClipAt(clip.name, Math.random() * Math.max(0.01, clip.end));
+    if (first) {
+      print(
+        'LumiCatch: after playClipAt  playing=' +
+        player.getClipIsPlaying(clip.name) +
+        ' active=[' + player.getActiveClips().join(',') + ']' +
+        ' t=' + player.getClipCurrentTime(clip.name).toFixed(2)
+      );
+    }
   }
 
   /**
@@ -1389,6 +1598,20 @@ export class LumiCatchManager extends BaseScriptComponent {
   private reportCreatureSize() {
     if (this.creatures.length === 0) {
       print('LumiCatch: no creatures to measure.');
+      return;
+    }
+    // Wait until the shoal is actually on screen.
+    //
+    // Creatures are hidden until BEGIN, and the per-frame transform is skipped
+    // while they are hidden, so a hidden creature still carries the prefab's
+    // own scale of 100. Measuring then reports a 338 metre jellyfish, which is
+    // arithmetically correct and completely useless.
+    if (!this.creatures[0].obj.enabled) {
+      this.sizeRetries++;
+      if (this.sizeRetries > 30) return;
+      const again = this.createEvent('DelayedCallbackEvent');
+      again.bind(() => this.reportCreatureSize());
+      again.reset(1.0);
       return;
     }
     // Measured from the skeleton, not from worldAabbMin/Max. On a skinned mesh
@@ -1429,23 +1652,32 @@ export class LumiCatchManager extends BaseScriptComponent {
     // a still skeleton means the animation is not running, while a skeleton
     // that moves under a mesh that does not is a skinning problem in the
     // material.
-    const span = new vec3(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z);
-    if (this.firstSpan === null) {
-      this.firstSpan = span;
+    // Sum of every pairwise distance between bones. This is the creature's
+    // SHAPE, independent of where it is or which way it is facing: rigid
+    // motion cannot change it, only deformation can.
+    //
+    // The first version of this check measured the world space bounding box of
+    // the bones, which a spinning creature changes without deforming at all.
+    // It duly reported 'BONES ARE ANIMATING' while the mesh was rigid, because
+    // it was measuring the spin. Do not measure a moving object in world space
+    // and call the result deformation.
+    let sig = 0;
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) sig += pts[i].distance(pts[j]);
+    }
+    if (this.firstSig < 0) {
+      this.firstSig = sig;
       const again = this.createEvent('DelayedCallbackEvent');
       again.bind(() => this.reportCreatureSize());
       again.reset(1.6);
     } else {
-      const d =
-        Math.abs(span.x - this.firstSpan.x) +
-        Math.abs(span.y - this.firstSpan.y) +
-        Math.abs(span.z - this.firstSpan.z);
+      const rel = Math.abs(sig - this.firstSig) / Math.max(0.01, this.firstSig);
       print(
-        'LumiCatch: skeleton moved ' + d.toFixed(2) +
-        ' cm over 1.6 s  ->  ' +
-        (d > 0.5
-          ? 'BONES ARE ANIMATING'
-          : 'BONES ARE STILL, the clip is not playing')
+        'LumiCatch: skeleton shape changed ' + (rel * 100).toFixed(2) +
+        '% over 1.6 s  ->  ' +
+        (rel > 0.02
+          ? 'THE MESH IS DEFORMING'
+          : 'RIGID, the clip is not driving the bones')
       );
     }
 
@@ -1483,7 +1715,11 @@ export class LumiCatchManager extends BaseScriptComponent {
     print(
       'LumiCatch: body axis root->tentacles = (' +
       d.x.toFixed(2) + ', ' + d.y.toFixed(2) + ', ' + d.z.toFixed(2) +
-      ')  from ' + tips.length + ' tips  ->  ' + axis
+      ')  from ' + tips.length + ' tips  ->  ' + axis +
+      // This reading includes the creature's own lean, and horizontalShare
+      // deliberately puts some of the shoal on their sides. A sideways
+      // reading here is only a fault if EVERY creature reads that way.
+      '   (includes this creature\'s lean)'
     );
   }
 
@@ -1683,6 +1919,7 @@ export class LumiCatchManager extends BaseScriptComponent {
 
     this.updateCloaking();
     this.updateCaught(dt, camPos, fwd);
+    this.updateCountdown(dt);
     this.updateRound(dt);
     this.updateStartScreen(dt);
     this.updateHud(dt);
@@ -1864,8 +2101,21 @@ export class LumiCatchManager extends BaseScriptComponent {
       (this.modelUprightDeg * Math.PI) / 180,
       new vec3(1, 0, 0)
     );
+    // The shoal only exists once you have pressed BEGIN. Before that the room
+    // is empty, so the start panel is read against your actual room rather
+    // than against fourteen drifting creatures, and the moment of starting
+    // has something to reveal.
+    //
+    // Toggled per creature rather than on a parent, because creatureRoot()
+    // falls back to this script's own scene object when creatureParent is
+    // unset: disabling that would switch the manager off with it.
+    const shoalVisible =
+      !this.requireStart || this.started || this.countdownLeft >= 0;
+
     for (let i = 0; i < this.creatures.length; i++) {
       const c = this.creatures[i];
+      c.obj.enabled = shoalVisible;
+      if (!shoalVisible) continue;
       const t = c.obj.getTransform();
       t.setWorldPosition(c.pos);
 
@@ -1884,10 +2134,23 @@ export class LumiCatchManager extends BaseScriptComponent {
         this.elapsed * this.spinRate + c.seed,
         worldUp
       );
-      if (this.tiltVarietyDeg > 0) {
-        const lean = (Math.sin(c.seed * 12.9898) * this.tiltVarietyDeg * Math.PI) / 180;
-        const leanAxis = new vec3(Math.cos(c.seed * 4.1), 0, Math.sin(c.seed * 4.1));
-        rot = rot.multiply(quat.angleAxis(lean, leanAxis));
+      // A real shoal is not a parade of upright bells. Most drift near
+      // vertical with a few degrees of lean; a minority loll right over onto
+      // their sides. Two hashes of the seed pick which, and about which axis,
+      // so a creature's attitude is fixed for its lifetime but unrelated to
+      // its neighbours'.
+      const h = this.hash01(c.seed);
+      const h2 = this.hash01(c.seed + 7.77);
+      const leanDeg =
+        h < this.horizontalShare
+          ? this.maxTiltDeg * (0.55 + 0.45 * h2)     // over on its side
+          : this.tiltVarietyDeg * (h2 * 2 - 1);      // roughly upright
+      if (leanDeg !== 0) {
+        const a = h2 * Math.PI * 2;
+        const leanAxis = new vec3(Math.cos(a), 0, Math.sin(a));
+        rot = rot.multiply(
+          quat.angleAxis((leanDeg * Math.PI) / 180, leanAxis)
+        );
       }
       t.setWorldRotation(rot.multiply(upright));
 

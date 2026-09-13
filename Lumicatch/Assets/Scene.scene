@@ -3752,7 +3752,6 @@
     internetModule: true
     creatureParent: true
     captureVolume: true
-    ambientVolume: true
     usePinchToSwing: true
     spawnAllAround: true
     separationCm: true
@@ -3781,11 +3780,14 @@
     rareScaleMult: true
     creatureOpacity: true
     tiltVarietyDeg: true
+    horizontalShare: true
+    maxTiltDeg: true
     driftEaseRate: true
     fleeSpeedCm: true
     returnSpeedCm: true
     alertRangeCm: true
     alertHoldS: true
+    swimClipSeconds: true
     swimSpeed: true
     spinRate: true
     useWorldMesh: true
@@ -3809,9 +3811,6 @@
     spookSeconds: true
     curiousMisses: true
     curiousSeconds: true
-    moodFaceCalm: true
-    moodFaceCurious: true
-    moodFaceSpooked: true
     hudDistanceCm: true
     hudWidthCm: true
     hudYCm: true
@@ -3820,8 +3819,12 @@
     roundSeconds: true
     startTitleLabel: true
     startButtonLabel: true
-    plateRadius: true
-    plateMargin: true
+    glassTintR: true
+    glassTintG: true
+    glassTintB: true
+    glassAlpha: true
+    hudShoalYCm: true
+    countdownSeconds: true
     useMercy: true
     mercyMisses: true
     mercySeconds: true
@@ -3845,7 +3848,7 @@
       captureTrack: !<reference.AudioTrackAsset> e470e543-fb8e-48a1-8411-ce09cb2feaff
       ambientTrack: !<reference.AudioTrackAsset> 7b2d9a83-4485-4389-8720-deec2c66da1d
       captureVolume: !<float> 1.000000
-      ambientVolume: 0.400000
+      ambientVolume: !<float> 0.000000
       serverUrl: "ws://172.20.10.2:8765"
       simulate: false
       usePinchToSwing: true
@@ -3880,12 +3883,14 @@
       bloomMultiplier: !<float> 2.000000
       rareChance: 0.220000
       skittishChance: 0.350000
-      creatureScale: 0.060000
+      creatureScale: 0.055000
       rareScaleMult: 1.350000
       neonMaterial: !<reference.Material> 191abcc4-9398-4d54-bb64-9b1c4c441cd3
       modelUprightDeg: !<float> 0.000000
       creatureOpacity: 0.550000
       tiltVarietyDeg: !<float> 16.000000
+      horizontalShare: 0.300000
+      maxTiltDeg: !<float> 85.000000
       driftAmplitudeCm: !<float> 15.000000
       driftEaseRate: 1.200000
       fleeSpeedCm: !<float> 130.000000
@@ -3894,8 +3899,9 @@
       alertRangeCm: !<float> 55.000000
       alertHoldS: 0.220000
       leashMaxCm: !<float> 300.000000
+      swimClipSeconds: 4.125000
       swimSpeed: 2.200000
-      pulseAmount: 0.070000
+      pulseAmount: !<float> 0.000000
       spinRate: 0.350000
       useWorldMesh: true
       wallMarginCm: !<float> 25.000000
@@ -3922,9 +3928,6 @@
       predictFlashText: !<reference.Text> d891d557-62d6-4a72-9ea7-5b70d6ea667a
       catchPopupText: !<reference.Text> d30d6894-d67b-4b39-88ad-c7489e471f79
       difficultyLabelText: !<reference.Text> 5441894b-9039-4207-b889-8179d6eb5c5f
-      moodFaceCalm: ^_^
-      moodFaceCurious: o_o
-      moodFaceSpooked: ">_<"
       hudDistanceCm: !<float> 100.000000
       hudWidthCm: !<float> 34.000000
       hudYCm: !<float> -22.000000
@@ -3939,8 +3942,16 @@
       startTitleLabel: NEON-NET
       startButtonLabel: BEGIN
       attractDim: 0.450000
-      plateRadius: 2.200000
-      plateMargin: 2.400000
+      plateRadius: 3.400000
+      plateMargin: !<float> 3.000000
+      glassTintR: 0.340000
+      glassTintG: 0.660000
+      glassTintB: 0.780000
+      glassAlpha: 0.300000
+      hudTopYCm: !<float> 25.000000
+      hudShoalYCm: !<float> -22.000000
+      labelSpacing: !<float> 0.000000
+      countdownSeconds: !<float> 3.000000
       useMercy: true
       mercyMisses: !<float> 2.000000
       mercySeconds: !<float> 6.000000

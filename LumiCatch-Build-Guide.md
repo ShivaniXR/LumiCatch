@@ -1,6 +1,6 @@
 # LumiCatch Build Guide
 
-A step-by-step path from a bag of parts to a filmed, working demo. Each phase ends with something testable, so you always know the last thing that worked. Budget build: Arduino UNO Q (owned), MPU-6050, ERM coin motor with a 2N2222 transistor, toy net, power bank.
+A step-by-step path from a bag of parts to a filmed, working demo. Each phase ends with something testable, so you always know the last thing that worked. Budget build: Arduino UNO Q (owned), MPU-6050, ERM coin motor with a 2N2222 transistor, aquarium fish net, power bank.
 
 ## How the system fits together
 
@@ -1094,9 +1094,20 @@ above:
 LumiCatch: creature spans 9.4 x 20.1 x 6.9 cm across 14 bones at creatureScale 0.060, animated
 ```
 
-`creatureScale` ended at 0.06 for a 20 cm creature. The bone span runs slightly
+`creatureScale` ended at 0.055 for a 20 cm creature. The bone span runs slightly
 small, since the mesh skins a little beyond the bones, so the drawn creature is
 a couple of centimetres larger than the figure.
+
+**That 20 cm figure is now in doubt, for a non-technical reason.** It was chosen
+against a stated comparison of 'comfortably smaller than the net hoop', on the
+assumption that the prop was a butterfly net with a hoop about 30 cm across. It
+is an **aquarium fish net**, the sort used to scoop fish out of a tank, whose
+hoop is nearer 10 to 15 cm. The creature is therefore currently wider than the
+net that is supposed to be catching it.
+
+Worth recording because the error was not in any measurement: every number was
+right, and the reasoning on top of them rested on a wrong picture of the
+physical object. Measure the hoop and re-decide.
 
 Note the value in the **Inspector overrides the source default**, a trap this
 project has hit repeatedly. It was sitting at 10 while the source said 1.0.
@@ -1112,40 +1123,89 @@ The old fake bell pulse, `pulseAmount`, was a sine wave scaling the whole sphere
 up and down. With a real skeletal swim cycle it fights the animation and makes
 the creature visibly inflate, so it is now 0.
 
-*The animation was running and nobody could see it.* Reported as 'why can't I
-see the animation of jellyfish 3d model'. The `AnimationPlayer` was playing, the
-clip was looping, and the creature looked like a static prop.
+*The animation was not playing, and three checks in a row said it was.* This
+one is worth reading as a cautionary tale, because every intermediate
+conclusion was confidently wrong.
 
-'The player exists and autoplays' is not the same claim as 'the creature
-visibly animates', and only one of those can be checked by reading code. The
-startup log now samples the skeleton twice, 1.6 s apart, which separates the two
-possible faults: a still skeleton means the clip is not running, while a moving
-skeleton under a mesh that does not move is a skinning problem in the material.
-It returned:
+Reported as 'why can't I see the animation of jellyfish 3d model', and then, a
+fix later, 'i still cant see the animation'.
+
+**Wrong answer 1: 'the bones are animating, it is just subtle.'** The check
+sampled the world space bounding box of the bones twice and saw it change by
+6.29 cm, so it declared the skeleton animating. It was measuring the creature's
+**yaw spin**. A bounding box in world space changes when a rigid object
+rotates. Measuring a moving object in world space and calling the difference
+deformation is simply a bug in the measurement.
+
+**Wrong answer 2: 'speed the clip up.'** Built on wrong answer 1. It made the
+number bigger without making the creature move.
+
+**The check that worked** is rotation invariant: the sum of all pairwise
+distances between bones. That is the creature's *shape*, which rigid motion
+cannot change and deformation must:
 
 ```
-creature spans  9.6 x 20.3 x 6.9 cm   (t = 1.0 s)
-creature spans 10.3 x 20.3 x 6.1 cm   (t = 2.6 s)
-skeleton moved 1.66 cm over 1.6 s  ->  BONES ARE ANIMATING
+skeleton shape changed 0.02% over 1.6 s  ->  RIGID, the clip is not driving the bones
 ```
 
-Nothing was broken. The model's swim cycle is 4.12 s of graceful drift, which
-amounts to about **1.6 cm of movement on a 20 cm creature** and is simply below
-the threshold of perception for a translucent object at 1 to 3 m on a 27 degree
-display. Two fixes:
+With spin disabled and the shape measured properly, the skeleton was perfectly
+rigid. Not subtle. Not playing.
 
-- `swimSpeed` (2.2) sets `AnimationClip.playbackSpeed`, so the cycle runs in under two seconds instead of four. Measured again afterwards: **6.29 cm over 1.6 s**, nearly four times the motion.
-- `pulseAmount` is back at 0.07. It had been set to 0 on the argument that a real skeletal animation made a fake scale pulse redundant. That was wrong, and the measurement is what showed it: the real animation is too subtle to carry the job alone, and a gentle whole-body breathing pulse is what actually makes the shoal look alive.
+**The actual cause.** Logging the clip gave it away immediately:
 
-The general lesson is the same one the orientation hunt taught: **verify the
-thing the user can see, not the thing the code claims.** 'The animation plays'
-was true and useless.
+```
+anim clip "StandardMoving" clips=1 begin=0 end=0.1375 mode=1 playing=false
+```
 
-*They all hung at exactly the same angle.* Real jellyfish drift at slight
-angles. `tiltVarietyDeg` (16) gives each creature a fixed lean, derived from its
-existing `seed` rather than stored, so it is constant per creature and different
-between them. At 0 every creature is perfectly vertical, which is what you want
-while checking orientation and not what you want on camera.
+`end = 0.1375` seconds. The glTF animation is **4.125** seconds long, and
+0.1375 is exactly 4.125 / 30: Lens Studio's importer has read the glTF's
+keyframe times, which the format specifies in **seconds**, as **frames**, and
+divided by 30 fps. The player was faithfully looping a 137 millisecond sliver
+of a four second swim cycle, which holds the creature very nearly still.
+
+The fix is to repair the clip's length in script before playing it:
+
+```ts
+if (this.swimClipSeconds > 0) {   // 4.125, the real length from the glTF
+  clip.begin = 0;
+  clip.end = this.swimClipSeconds;
+}
+clip.playbackMode = PlaybackMode.Loop;
+player.setClipEnabled(clip.name, true);
+player.playClipAt(clip.name, Math.random() * clip.end);
+```
+
+Measured afterwards: **8.80% shape change over 1.6 s**, with the creature's
+height moving between 20.1 and 22.0 cm as the bell contracts. `pulseAmount`
+went back to 0, because the fake scale pulse added while chasing 'too subtle'
+is genuinely redundant now and reads as inflation on top of a real animation.
+
+**If you import a glTF or FBX animation into Lens Studio and it looks static,
+print `clip.end` first.** Compare it against the source file's real duration
+before touching anything else. Two of the three wrong turns above would have
+been skipped by that one line.
+
+The general lesson, twice learned in this project: **verify the thing the user
+can see.** 'The AnimationPlayer exists, autoplay is true, and the clip is
+looping' was entirely true and entirely useless.
+
+*They all hung at exactly the same angle.* Real jellyfish drift at all sorts
+of attitudes, and as the user put it, 'in a shoal of jellyfish not all are
+vertical, some are horizontal as well'. So the lean is two-tiered, both tiers
+hashed from the creature's existing `seed` so an attitude is fixed for its
+lifetime and unrelated to its neighbours':
+
+- the upright majority get a gentle `tiltVarietyDeg` (16 degrees) either way
+- `horizontalShare` (0.3) of the shoal instead loll over onto their sides, up to `maxTiltDeg` (85 degrees)
+
+Set `horizontalShare` to 0 for an all-upright shoal, and `tiltVarietyDeg` to 0
+as well for a rigid formation, which is what you want while checking
+orientation and not what you want on camera.
+
+Note that the orientation diagnostic reports **one** creature and includes that
+creature's own lean, so a sideways reading there is only a fault if every
+creature reads that way. The log line says so, to stop it being misread as a
+regression later.
 
 **Confirmed working:** the unlit neon material tints the skinned mesh correctly.
 That was the one real risk in the swap, since the creature colours are set by
