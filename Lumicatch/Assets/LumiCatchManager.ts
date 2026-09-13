@@ -549,10 +549,15 @@ export class LumiCatchManager extends BaseScriptComponent {
   // The end of round screen. Same rule as uiButtonYCm: uiRestartYCm is the ONE
   // place the restart button's height is written, and the collider reads it
   // too. The banner sits above the score line, the button below it.
-  @input uiGameOverHeightCm: number = 17;
-  @input uiGameOverYCm: number = 19;
+  // The end of round screen, top to bottom: SCORE, then the GAME OVER card in
+  // the centre of the view, then RESTART, then 'best n'. The score reads first
+  // because it is the thing the player actually wants; GAME OVER takes the
+  // centre because it is the card, not a headline.
+  @input uiGameOverHeightCm: number = 16;
+  @input uiGameOverYCm: number = 4;
+  @input resultScoreYCm: number = 19;
   @input uiRestartHeightCm: number = 11;
-  @input uiRestartYCm: number = -9;
+  @input uiRestartYCm: number = -13;
   @input uiArt32Aspect: number = 1.5;   // both end of round images are 1536x1024
   // Press feedback. The art squashes and flares on contact, because the thing
   // being pressed is invisible: without this the only confirmation is the
@@ -1573,13 +1578,13 @@ export class LumiCatchManager extends BaseScriptComponent {
       // higher, because it has a button and a status line beneath it.
       const big = counting ? 3.4 : 1.9;
       // Three different jobs, three different places. The countdown owns the
-      // centre; the plain title sits high; the score has to clear the GAME
-      // OVER banner above it, which spans uiGameOverYCm plus or minus half of
-      // uiGameOverHeightCm, so it sits between the banner and the button.
+      // centre; the plain title sits high; the result score sits ABOVE the
+      // GAME OVER card, at its own height rather than derived from the card's,
+      // so moving one does not silently drag the other.
       const titleY = counting
         ? 4
         : this.roundOver && this.uiGameOver
-        ? this.uiGameOverYCm - this.uiGameOverHeightCm * 0.5 - 5
+        ? this.resultScoreYCm
         : 16;
       t.setLocalPosition(new vec3(0, titleY, -this.hudDistanceCm));
       t.setLocalScale(new vec3(big, big, big));
