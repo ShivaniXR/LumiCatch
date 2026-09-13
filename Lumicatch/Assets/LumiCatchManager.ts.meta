@@ -83,8 +83,8 @@
     glassTintR: false
     goHoldS: false
     goTrack: false
-    guaranteeDelayS: false
     guaranteeEasyTarget: false
+    guaranteeMisses: false
     heroDistanceCm: false
     horizontalShare: false
     hudDistanceCm: false
@@ -162,12 +162,14 @@
     startTitleText: false
     statusYCm: false
     superDepthWrite: false
+    superFleeMult: false
     superMaterialSlots: false
     superModelScaleMult: false
     superPrefab: false
     superRareChance: false
     superRarePoints: false
     superRareScaleMult: false
+    superShyMult: false
     superSwimClipSeconds: false
     superTrack: false
     swimClipSeconds: false
@@ -272,6 +274,8 @@
       superModelScaleMult: 106.169998
       superDepthWrite: true
       superMaterialSlots: !<float> 5.000000
+      superShyMult: 1.700000
+      superFleeMult: 1.400000
       superRarePoints: !<float> 8.000000
       creatureScale: !<float> 1.000000
       rareScaleMult: 1.350000
@@ -382,7 +386,7 @@
       mercyMisses: !<float> 2.000000
       mercySeconds: !<float> 6.000000
       guaranteeEasyTarget: true
-      guaranteeDelayS: !<float> 3.000000
+      guaranteeMisses: !<float> 5.000000
       heroDistanceCm: !<float> 110.000000
       forwardSign: !<float> -1.000000
   ScriptTypes:
@@ -429,8 +433,8 @@
     - // @input float nearbyCooldownS = 2.5
     - // @input bool useSwingQuality = true
     - // @input float gentleSwingG = 4
-    - // @input float sneakRangeCm = 85
-    - // @input float lungeRangeCm = 170
+    - // @input float sneakRangeCm = 88
+    - // @input float lungeRangeCm = 108
     - // @input float sneakSpookCm = 40
     - // @input float lungeSpookCm = 120
     - // @input float catchFlyS = 0.2
@@ -446,11 +450,13 @@
     - // @input float bloomMultiplier = 2
     - // @input float rareChance = 0.22
     - // @input float skittishChance = 0.35
-    - // @input float superRareChance = 0.05
+    - // @input float superRareChance = 0.12
     - // @input float superRareScaleMult = 1.2
     - // @input float superModelScaleMult = 106.17
     - // @input bool superDepthWrite = true
     - // @input float superMaterialSlots = 5
+    - // @input float superShyMult = 1.7
+    - // @input float superFleeMult = 1.4
     - // @input float superRarePoints = 8
     - // @input float creatureScale = 0.06
     - // @input float rareScaleMult = 1.35
@@ -465,7 +471,7 @@
     - // @input float fleeSpeedCm = 130
     - // @input float fleeDistanceCm = 70
     - // @input float returnSpeedCm = 55
-    - // @input float alertRangeCm = 55
+    - // @input float alertRangeCm = 70
     - // @input float alertHoldS = 0.22
     - // @input float leashMaxCm = 260
     - // @input float swimClipSeconds = 4.125
@@ -558,9 +564,9 @@
     - // @input float countdownSeconds = 3
     - // @input float goHoldS = 0.6
     - // @input bool useMercy = true
-    - // @input float mercyMisses = 2
-    - // @input float mercySeconds = 6
+    - // @input float mercyMisses = 4
+    - // @input float mercySeconds = 4
     - // @input bool guaranteeEasyTarget = true
-    - // @input float guaranteeDelayS = 3
+    - // @input float guaranteeMisses = 5
     - // @input float heroDistanceCm = 110
     - // @input float forwardSign = -1

@@ -4200,8 +4200,6 @@
     nearbyRangeCm: true
     nearbyCooldownS: true
     useSwingQuality: true
-    sneakRangeCm: true
-    lungeRangeCm: true
     sneakSpookCm: true
     lungeSpookCm: true
     catchFlyS: true
@@ -4216,10 +4214,11 @@
     bloomMultiplier: true
     rareChance: true
     skittishChance: true
-    superRareChance: true
     superModelScaleMult: true
     superDepthWrite: true
     superMaterialSlots: true
+    superShyMult: true
+    superFleeMult: true
     superRarePoints: true
     rareScaleMult: true
     creatureOpacity: true
@@ -4229,7 +4228,6 @@
     driftEaseRate: true
     fleeSpeedCm: true
     returnSpeedCm: true
-    alertRangeCm: true
     alertHoldS: true
     swimClipSeconds: true
     superSwimClipSeconds: true
@@ -4289,10 +4287,8 @@
     countdownSeconds: true
     goHoldS: true
     useMercy: true
-    mercyMisses: true
-    mercySeconds: true
     guaranteeEasyTarget: true
-    guaranteeDelayS: true
+    guaranteeMisses: true
     heroDistanceCm: true
     forwardSign: true
   ScriptTypesDefault:
@@ -4334,13 +4330,13 @@
       spawnYawSpread: 0.700000
       spawnHeightSpreadCm: !<float> 45.000000
       captureRangeCm: !<float> 150.000000
-      captureConeDot: 0.800000
+      captureConeDot: 0.900000
       nearbyRangeCm: !<float> 90.000000
       nearbyCooldownS: 2.500000
       useSwingQuality: true
       gentleSwingG: !<float> 4.000000
-      sneakRangeCm: !<float> 85.000000
-      lungeRangeCm: !<float> 170.000000
+      sneakRangeCm: !<float> 88.000000
+      lungeRangeCm: !<float> 108.000000
       sneakSpookCm: !<float> 40.000000
       lungeSpookCm: !<float> 120.000000
       catchFlyS: 0.200000
@@ -4356,11 +4352,13 @@
       bloomMultiplier: !<float> 2.000000
       rareChance: 0.220000
       skittishChance: 0.350000
-      superRareChance: 0.050000
+      superRareChance: 0.120000
       superRareScaleMult: 1.200000
       superModelScaleMult: 106.169998
       superDepthWrite: true
       superMaterialSlots: !<float> 5.000000
+      superShyMult: 1.700000
+      superFleeMult: 1.400000
       superRarePoints: !<float> 8.000000
       creatureScale: 0.055000
       rareScaleMult: 1.350000
@@ -4375,7 +4373,7 @@
       fleeSpeedCm: !<float> 130.000000
       fleeDistanceCm: !<float> 32.000000
       returnSpeedCm: !<float> 55.000000
-      alertRangeCm: !<float> 55.000000
+      alertRangeCm: !<float> 70.000000
       alertHoldS: 0.220000
       leashMaxCm: !<float> 300.000000
       swimClipSeconds: 4.125000
@@ -4468,10 +4466,10 @@
       countdownSeconds: !<float> 3.000000
       goHoldS: 0.600000
       useMercy: true
-      mercyMisses: !<float> 2.000000
-      mercySeconds: !<float> 6.000000
+      mercyMisses: !<float> 4.000000
+      mercySeconds: !<float> 4.000000
       guaranteeEasyTarget: true
-      guaranteeDelayS: !<float> 3.000000
+      guaranteeMisses: !<float> 5.000000
       heroDistanceCm: !<float> 110.000000
       forwardSign: !<float> -1.000000
   ScriptTypes:

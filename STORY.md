@@ -388,7 +388,7 @@ is looping' was entirely true and entirely useless.
 - The firmware computes **acceleration magnitude**, not velocity or orientation. Magnitude is what the swing detector and the trajectory model consume. The MPU-6050's gyro is present and unused.
 - Communication between the processors uses the **Router Bridge RPC directly**, which is the mechanism underneath App Lab's higher-level bricks.
 - The AI is **heuristic, not learned**. That is a deliberate choice for repeatability under filming, not a limitation worked around.
-- Filming safeguards are built in on purpose: a leash so nothing escapes across the room, a mercy window after repeated misses, and a guarantee that one easy target is always within reach. They can all be switched off.
+- Two safety nets remain, both switchable: a leash so nothing escapes across the room, and a mercy window that pauses fleeing after four straight misses. A third, a guarantee that an easy target was always within reach, was built for a single-take film and **cut** once it became clear it was the main reason the game played as too easy: it was quietly teleporting a catchable creature into range every three seconds for the whole round.
 
 ---
 

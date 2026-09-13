@@ -209,8 +209,19 @@ export class LumiCatchManager extends BaseScriptComponent {
   // to sit inside the band of swings that actually register, and 4.6 left
   // almost nothing counting as a sneak once the floor moved.
   @input gentleSwingG: number = 4.0;        // under this is a sneak
-  @input sneakRangeCm: number = 85;
-  @input lungeRangeCm: number = 170;
+  // MUST stay above personalSpaceCm, or the sneak is dead: nothing is ever
+  // allowed within personalSpaceCm of your head, so a shorter reach than that
+  // can never touch anything. It was briefly 70 against a personal space of
+  // 75, which silently turned every catch into a lunge and made the game feel
+  // like it was reaching across the room. checkReach() below now shouts if
+  // that combination comes back.
+  @input sneakRangeCm: number = 88;
+  // 170 cm let you take a creature nearly two metres away, which is most of
+  // why the game played as too easy: almost everything was always in reach.
+  // Roughly what an arm plus a 25 cm net handle actually covers from your
+  // head. The catch has no idea where the net really is, only that a swing
+  // happened, so this number IS the honesty of the mechanic.
+  @input lungeRangeCm: number = 108;
   @input sneakSpookCm: number = 40;         // a sneak disturbs almost nothing
   @input lungeSpookCm: number = 120;        // a lunge wakes the neighbourhood
 
@@ -253,7 +264,7 @@ export class LumiCatchManager extends BaseScriptComponent {
   // The Abyssal. Rare enough that seeing one is an event, not a routine.
   // At 0.05 with fourteen creatures you expect fewer than one on screen, and
   // a fresh one only every several respawns.
-  @input superRareChance: number = 0.05;
+  @input superRareChance: number = 0.12;
   // 1.6 -> 1.2 after seeing it in play: the Abyssal read as oversized rather
   // than as a prize. This is the ART dial. superModelScaleMult below is the
   // unit correction and must NOT be used for this, or the two get conflated
@@ -274,6 +285,11 @@ export class LumiCatchManager extends BaseScriptComponent {
   // so the other four keep the model's own plain grey unless we write them
   // anyway. Raise this if a new model has more sub-meshes.
   @input superMaterialSlots: number = 5;
+  // Shyness. Less rare than it was, and correspondingly harder to approach, so
+  // its difficulty comes from the creature's behaviour rather than from the
+  // dice. Seeing one and losing it is a better moment than never seeing one.
+  @input superShyMult: number = 1.7;    // notices you 1.7x further out
+  @input superFleeMult: number = 1.4;   // and leaves faster when it does
   @input superRarePoints: number = 8;
 
   // Tuned against the skeleton, measured: the creature spans 33.2 cm tall at
@@ -349,7 +365,7 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input fleeSpeedCm: number = 130;
   @input fleeDistanceCm: number = 70;
   @input returnSpeedCm: number = 55;
-  @input alertRangeCm: number = 55;
+  @input alertRangeCm: number = 70;
   @input alertHoldS: number = 0.22;          // the beat where it notices you, keeps the dodge legible
   @input leashMaxCm: number = 260;
 
@@ -584,10 +600,18 @@ export class LumiCatchManager extends BaseScriptComponent {
 
   // ---- Demo safeguards ----
   @input useMercy: boolean = true;
-  @input mercyMisses: number = 2;
-  @input mercySeconds: number = 6.0;
+  @input mercyMisses: number = 4;
+  @input mercySeconds: number = 4.0;
+  // A rescue for a player who is genuinely stuck, not a constant drip.
+  //
+  // It began as a one-take filming net: if no catchable creature was in front
+  // of you, one swam into shot. On a three second timer that meant the game
+  // could not really be lost, and it was the single largest reason it played
+  // as too easy. It now waits for a run of misses instead, so it only appears
+  // once the player has actually failed several swings in a row.
   @input guaranteeEasyTarget: boolean = true;
-  @input guaranteeDelayS: number = 3.0;
+  // How many swings in a row must catch nothing before one is sent in.
+  @input guaranteeMisses: number = 5;
   @input heroDistanceCm: number = 110;
 
   // Lens Studio's transform.forward points along +z on some rigs.
@@ -603,8 +627,13 @@ export class LumiCatchManager extends BaseScriptComponent {
   private lastSimSwing: number = -10;
   private elapsed: number = 0;
   private consecutiveMisses: number = 0;
+  // A second miss counter, for the easy-target rescue alone.
+  //
+  // consecutiveMisses cannot be used: the mercy window zeroes it the moment it
+  // fires, which is also at four misses, so the rescue would race it and
+  // usually lose. This one is cleared only by a catch or by the rescue itself.
+  private missStreak: number = 0;
   private mercyUntil: number = -10;
-  private easyMissingT: number = 0;
   private nearbyActive: boolean = false;
   private kindMaterials: Material[] = [null, null, null];
   private tintWarned: boolean = false;
@@ -728,6 +757,7 @@ export class LumiCatchManager extends BaseScriptComponent {
       ' creatures spawned in front. If this is 0, flip forwardSign.'
     );
 
+    this.checkReach();
     this.setupAudio();
     this.setupEndArt();
 
@@ -1698,6 +1728,34 @@ export class LumiCatchManager extends BaseScriptComponent {
 
 
 
+
+  /**
+   * Shout if the reach settings cannot work.
+   *
+   * personalSpaceCm is a hard floor on how near anything may get. Any reach
+   * shorter than it can never touch a creature, so the swing that uses it
+   * silently stops working and every catch quietly becomes a lunge. Nothing
+   * errors, the game just starts reaching across the room. It happened once;
+   * this makes it say so.
+   */
+  private checkReach() {
+    if (!this.useSwingQuality) return;
+    if (this.sneakRangeCm <= this.personalSpaceCm) {
+      print(
+        'LumiCatch: WARNING sneakRangeCm ' + this.sneakRangeCm +
+        ' is not greater than personalSpaceCm ' + this.personalSpaceCm +
+        ' so a sneak can never catch anything. Raise the reach or lower the ' +
+        'personal space.'
+      );
+    }
+    if (this.lungeRangeCm <= this.sneakRangeCm) {
+      print(
+        'LumiCatch: WARNING lungeRangeCm ' + this.lungeRangeCm +
+        ' is not greater than sneakRangeCm ' + this.sneakRangeCm +
+        ' so a lunge buys nothing.'
+      );
+    }
+  }
 
   /**
    * Give the end of round quads their own materials.
@@ -3055,7 +3113,13 @@ export class LumiCatchManager extends BaseScriptComponent {
             target,
             Math.min(1, dt * this.driftEaseRate)
           );
-          if (this.canFlee(c) && dist < this.alertRangeCm * this.diffAlertMult) {
+          // The Abyssal notices you from further off than anything else. It is
+          // the one creature worth eight points, so it should be the one that
+          // is hard to get near, rather than merely hard to find.
+          const alertR =
+            this.alertRangeCm * this.diffAlertMult *
+            (c.kind === KIND_ABYSSAL ? this.superShyMult : 1);
+          if (this.canFlee(c) && dist < alertR) {
             c.state = ST_ALERT;
             c.stateT = 0;
           }
@@ -3077,7 +3141,8 @@ export class LumiCatchManager extends BaseScriptComponent {
           c.pos = this.stepTowards(
             c.pos,
             c.fleeTarget,
-            this.fleeSpeedCm * this.diffSpeedMult * dt
+            this.fleeSpeedCm * this.diffSpeedMult * dt *
+              (c.kind === KIND_ABYSSAL ? this.superFleeMult : 1)
           );
           if (c.pos.distance(c.fleeTarget) < 8 || c.stateT > 1.2) {
             c.home = this.pointInCone(
@@ -3276,16 +3341,24 @@ export class LumiCatchManager extends BaseScriptComponent {
     // mood and dragging one back would fight it. Spook only lasts a few
     // seconds and only follows a run of successful catches, so the take is
     // never left stranded.
-    if (this.guaranteeEasyTarget && this.mood !== MOOD_SPOOKED) {
-      if (easyReady) {
-        this.easyMissingT = 0;
-      } else {
-        this.easyMissingT += dt;
-        if (this.easyMissingT > this.guaranteeDelayS) {
-          this.easyMissingT = 0;
-          this.summonEasyTarget(camPos, fwd, rightV);
-        }
-      }
+    // Triggered by the player struggling, not by a clock.
+    //
+    // This used to fire whenever no easy target had been in front of you for
+    // a few seconds, which meant a creature was teleported into reach all
+    // round and the game could not be lost. Now it waits for a run of
+    // guaranteeMisses swings that caught nothing, which is the only moment a
+    // rescue is actually warranted.
+    //
+    // Still suspended while spooked: backing off is the whole point of that
+    // mood, and dragging one back would fight it.
+    if (
+      this.guaranteeEasyTarget &&
+      this.mood !== MOOD_SPOOKED &&
+      this.missStreak >= this.guaranteeMisses &&
+      !easyReady
+    ) {
+      this.missStreak = 0;
+      this.summonEasyTarget(camPos, fwd, rightV);
     }
 
     // Proximity haptic, edge triggered. It fires when something arrives, not
@@ -3445,6 +3518,7 @@ export class LumiCatchManager extends BaseScriptComponent {
       // ask. If another player got there first the answer is no, and onTaken
       // does the scoring when the answer is yes.
       this.consecutiveMisses = 0;
+      this.missStreak = 0;
       this.sendClaim(this.creatures[bestIdx].id);
       if (this.useSwingQuality) {
         this.disturb(camPos, gentle ? this.sneakSpookCm : this.lungeSpookCm);
@@ -3456,9 +3530,11 @@ export class LumiCatchManager extends BaseScriptComponent {
 
     if (bestIdx >= 0) {
       this.consecutiveMisses = 0;
+      this.missStreak = 0;
       this.capture(bestIdx, gentle);
     } else {
       this.consecutiveMisses++;
+      this.missStreak++;
       this.showMiss();
       print(
         'LumiCatch: swing missed (peak ' +
