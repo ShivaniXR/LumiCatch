@@ -101,6 +101,10 @@ PAGE = """<!doctype html>
  .calm{color:var(--cyan)}
  .curious{color:var(--violet)}
  .spooked{color:var(--gold)}
+ .mode{font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+   padding:2px 7px;border-radius:99px;white-space:nowrap;margin-left:7px}
+ .mode.solo{color:var(--dim);border:1px solid var(--line)}
+ .mode.shared{color:#0a1620;background:var(--violet);font-weight:600}
  .crown{color:var(--gold);font-size:10.5px;letter-spacing:.14em;
    text-transform:uppercase;margin-top:6px;display:block}
 
@@ -158,6 +162,36 @@ PAGE = """<!doctype html>
       and its own difficulty AI, so two people of different skill can share the
       same room and each get a fair game.</p>
    <div class="players" id="players"></div>
+ </section>
+
+ <section id="shoalsec" style="display:none">
+   <h2>The shared shoal</h2>
+   <p class="lead">When players choose the shared game, the board stops keeping
+      score for two separate worlds and starts running one. Every creature below
+      lives on the UNO Q: it decides where they drift, when they bolt, and which
+      player got there first.</p>
+   <div class="models">
+     <div class="model a">
+       <div class="mname"><span>Authoritative</span>One shoal, on the board</div>
+       <p class="mdesc">The headsets render what they are told and ask
+          permission to catch. Two players lunging at the same jellyfish cannot
+          both score it, because only one claim is ever granted.</p>
+       <div class="mstats">
+         <div><div class="k">Creatures in the water</div><div class="v num" id="shoalsize">--</div></div>
+         <div><div class="k">In the shared game</div><div class="v num" id="sharedn">0</div></div>
+       </div>
+     </div>
+     <div class="model b">
+       <div class="mname"><span>Shoal state</span>How it feels about you</div>
+       <p class="mdesc">Calm by default. Three quick catches and it panics,
+          groups tight and backs away. Keep missing and it turns curious and
+          drifts closer to see what you are.</p>
+       <div class="mstats">
+         <div><div class="k">Mood</div><div class="v" id="shoalmood">--</div></div>
+         <div><div class="k">Broadcast rate</div><div class="v num">15 Hz</div></div>
+       </div>
+     </div>
+   </div>
  </section>
 
  <section>
@@ -242,7 +276,10 @@ function playerCard(p, leading, many){
   var d = p.difficulty || 0, b = band(d);
   return '<article class="player' + (leading ? ' lead-player' : '') + '">'
     + '<div class="phead"><div>'
-    +   '<div class="pname">Player ' + esc(p.id) + '</div>'
+    +   '<div class="pname">Player ' + esc(p.id)
+    +     '<span class="mode ' + (p.mode === 'shared' ? 'shared' : 'solo')
+    +     '">' + (p.mode === 'shared' ? 'shared shoal' : 'solo')
+    +     '</span></div>'
     +   '<div class="paddr mono">' + esc(p.address) + '</div>'
     +   (leading && many ? '<span class="crown">Leading</span>' : '')
     + '</div>' + moodChip(p.mood) + '</div>'
@@ -290,6 +327,19 @@ async function tick(){
     document.getElementById('players').innerHTML = ps.length
       ? ps.map(function(p, i){ return playerCard(p, i === 0, many); }).join('')
       : EMPTY;
+
+    // The shoal panel appears only once somebody is actually playing the
+    // shared game, so a solo session is not cluttered with it.
+    var sharedN = s.shared_players || 0;
+    document.getElementById('shoalsec').style.display =
+      sharedN > 0 ? '' : 'none';
+    document.getElementById('sharedn').textContent = sharedN;
+    document.getElementById('shoalsize').textContent =
+      (s.shoal_size == null) ? '--' : s.shoal_size;
+    var mood = s.shoal_mood || 'calm';
+    var moodEl = document.getElementById('shoalmood');
+    moodEl.textContent = mood;
+    moodEl.className = 'v ' + mood;
 
     document.getElementById('tuned').textContent   = ps.length;
     document.getElementById('preds').textContent   = s.predictions;

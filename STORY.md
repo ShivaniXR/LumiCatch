@@ -52,10 +52,12 @@ yellow.*
 
 ## What it is like to play
 
-You stand in the middle of a room. Fourteen jellyfish drift around you, in three
-kinds, in three colours: common cyan Drifters, jumpier violet Skittish ones, and
-rare gold Lumens worth triple. They are in two loose shoals, and they hang at
-all sorts of angles, some upright, some lolling over on their sides.
+You stand in the middle of a room. Fourteen jellyfish drift around you, in four
+kinds, in four colours: common cyan Drifters, jumpier violet Skittish ones, rare
+gold Lumens worth triple, and the Abyssal, a neon rose creature with a different
+body entirely that turns up perhaps once in a round and is worth eight. They are
+in two loose shoals, and they hang at all sorts of angles, some upright, some
+lolling over on their sides.
 
 They notice you. Come too close and one will freeze for a beat and then dart
 away, and a creature that has noticed you cannot be caught, so being seen is a
@@ -83,6 +85,45 @@ round has a shape rather than just stopping.
 
 > **PHOTO:** the shoal seen across the room, showing creatures occluded by real
 > furniture.
+
+### Knowing what happened, on a 27 degree display
+
+The Spectacles' display is about 27 degrees wide. That is far narrower than it
+sounds, and it drove most of the feedback design: anything you have to hunt for
+on screen may as well not be there.
+
+**Four kinds, told apart four ways, and never explained.** The common drifter
+is cyan, the skittish one violet, the rare Lumen gold, and the Abyssal a neon
+rose that is deliberately the one hue not otherwise in use. They differ in size
+too, and at high difficulty the two rare kinds begin to cloak, fading towards
+invisible. Most usefully they differ in **sound**: the common catch is a two
+note chime, the rare a three note climb, and the Abyssal a five note arpeggio
+with a shimmer under its tail. You know what you caught before you have read
+anything.
+
+There is deliberately no tutorial and no key. A start screen legend was built
+twice, once as coloured text and once as a row of live turning specimens, and
+cut both times. The catch popup already names the creature and its value at the
+moment you catch it, which teaches in context rather than as a manual to read
+first, and gold already reads as valuable without being told. On a display 27
+degrees wide, anything explained before play begins is taking room from the
+thing it is explaining.
+
+**Missing tells you why.** A swing that catches nothing reports `IT DODGED`,
+`OFF TARGET`, `TOO FAR` or `NOTHING THERE`, worked out from the same pass over
+the shoal that looked for a target, so it costs nothing. Being dodged and
+swinging at empty air are completely different mistakes and deserve different
+corrections. The miss is mixed deliberately quiet, dimmer and smaller than a
+catch and gone in under a second: it fires far more often than a catch does.
+
+**The sound is band limited to the hardware.** The first ambient bed was built
+from 55, 82.5 and 110 Hz and sounded superb on a laptop. On the glasses it was
+awful: the speakers are tiny, cannot move air at those frequencies, and distort
+trying, which you hear as a rattle rather than as bass. Everything was rebuilt
+above 220 Hz. Across the sound effects, measured energy below 110 Hz is between
+0.00 and 0.03 per cent. The capture chime is the one sound that is spatialised,
+because it is the only one with a position worth hearing: catch one on your left
+and it rings on your left.
 
 ---
 
@@ -207,10 +248,35 @@ made harder to sneak up on.'* Those thresholds are read off the live model and
 sent with the state, so the explanation cannot drift away from what the AI is
 actually doing.
 
-**Multiplayer is real rather than decorative.** Every pair of Spectacles that
-connects becomes a session with **its own** difficulty model, so two players of
-different skill can share one room and each get a fair game. Results and
-difficulty updates are addressed per socket, never broadcast.
+**Multiplayer is real rather than decorative,** and it got more real. Every
+pair of Spectacles that connects becomes a session with **its own** difficulty
+model, so two players of different skill can share one room and each get a fair
+game.
+
+Then the start screen gained a second button, and with it the interesting
+version: **SHARED**, where both players fish the same shoal.
+
+That required inverting the architecture. Until then each headset simulated its
+own creatures, which is fine for one player and meaningless for two: both would
+be swinging at jellyfish the other could not see. So the board took the world
+over. `shoal.py` on the Qualcomm side now owns every creature's position and
+state, runs the drifting and the bolting and the schooling, and settles catches.
+
+A headset no longer catches anything. It **asks**: 'I hit number seven.' The
+board grants it or refuses it, and the first claim wins. That single rule is why
+two players lunging at the same jellyfish cannot both score it, and it is the
+reason this had to live on the board rather than in either headset.
+
+It also puts the UNO Q where the brief wants it. It is no longer a clever sensor
+with AI attached; it is the game server, running the world for everyone in the
+room and broadcasting it fifteen times a second.
+
+**One limitation, stated plainly.** Two Spectacles do not share a coordinate
+origin. Each headset pins the board's room frame to wherever it stood when the
+round began, so two players starting from roughly the same spot facing the same
+way agree about where the creatures are. What is *exact* is the state: the same
+creatures, the same ids, one ruling on each catch. Proper shared spatial anchors
+need Connected Lenses, which this deliberately avoids.
 
 > **PHOTO:** the dashboard open on a laptop beside the gameplay, with two
 > sessions listed and different difficulty levels.
@@ -219,8 +285,8 @@ difficulty updates are addressed per socket, never broadcast.
 
 There is nothing to `pip install`. The WebSocket server is raw sockets and a
 hand-written RFC 6455 implementation: handshake, masked inbound frames,
-unmasked outbound frames. The dashboard is `http.server`. Both sounds are
-synthesised by a standard-library script.
+unmasked outbound frames. The dashboard is `http.server`. Every sound in the
+game is synthesised by a standard-library script.
 
 App Lab runs the app in a container where package installation is awkward, and
 'nothing to install' is worth more on the day than any convenience a library
@@ -276,7 +342,7 @@ in Lens Studio, print `clip.end` before touching anything else.**
 
 ---
 
-## Two things that were deleted, and why
+## Three things that were deleted, and why
 
 Cutting features turned out to matter as much as adding them.
 
@@ -294,6 +360,22 @@ labelled readouts, and then the strand itself was redundant.
 
 **A whispered mood line**, which said the same thing as the mood face two lines
 above it.
+
+**World mesh hit testing**, which was supposed to stop creatures drifting
+through walls and did not. Playtesting found jellyfish inside the wall, and
+reading it back showed why. It checked **one creature per frame**, round robin,
+and the hit test was asynchronous on top of that: with fourteen creatures, each
+one was checked about four times a second, and a creature drifting at a wall was
+through it long before its turn came round. Worse, its correction pulled the
+creature back along the ray *from the player's head*, so its fix for a creature
+near a wall was to bring it closer to your face, fighting the rule that keeps
+the shoal at arm's length.
+
+It was replaced by a plain play volume: a radius, a ceiling and a floor,
+centred where you stood when the round began. A hard boundary that is slightly
+too small looks better on camera than a clever one that lets creatures through.
+Occlusion still uses the world mesh, because that part works and is worth
+having: real furniture genuinely hides the jellyfish behind it.
 
 The lesson, learned twice: **verify the thing the player can see, not the thing
 the code claims.** 'The AnimationPlayer exists, autoplay is true, and the clip
@@ -329,3 +411,22 @@ laptop alone.
 - Use the gyro for orientation, so the net's attitude affects the catch and not just its acceleration
 - Two players in one room on camera, which the board already supports and the video has yet to show
 - Creatures that hide behind real furniture deliberately, using the world mesh that already occludes them
+
+---
+
+## Credits
+
+The code, the schematics, the artwork and all eight sound files are original to
+this project; the sounds are synthesised from scratch by a standard-library
+Python script included in the repository.
+
+The two jellyfish models are the work of others, used under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/):
+
+- **['Simple Jellyfish'](https://sketchfab.com/3d-models/simple-jellyfish-f77876d8297846eeb23c4ad82dbebb97)** by **RickStikkelorum**
+- **['Simple Spotted Jellyfish (Baked Animation)'](https://sketchfab.com/3d-models/simple-spotted-jellyfish-baked-animation-d5006697ad3c4bc1ac814110cde19af2)** by **n-**
+
+Neither model file was altered. The Lens swaps their materials for unlit,
+self-coloured ones at runtime so they read as bioluminescent on an additive
+display, and corrects the imported animation clip length; no geometry, rigging
+or animation data was edited.

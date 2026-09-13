@@ -40,6 +40,7 @@
     burstMotes: false
     burstPrefab: false
     burstSpreadCm: false
+    buttonSpreadCm: false
     camera: false
     captureConeDot: false
     captureRangeCm: false
@@ -54,6 +55,11 @@
     cohesionSpooked: false
     comboMax: false
     comboWindowS: false
+    countTex1: false
+    countTex2: false
+    countTex3: false
+    countTexGo: false
+    countTrack: false
     countdownSeconds: false
     creatureCount: false
     creatureOpacity: false
@@ -69,11 +75,14 @@
     fleeDistanceCm: false
     fleeSpeedCm: false
     forwardSign: false
+    gameOverTex: false
     gentleSwingG: false
     glassAlpha: false
     glassTintB: false
     glassTintG: false
     glassTintR: false
+    goHoldS: false
+    goTrack: false
     guaranteeDelayS: false
     guaranteeEasyTarget: false
     heroDistanceCm: false
@@ -91,11 +100,16 @@
     maxTiltDeg: false
     mercyMisses: false
     mercySeconds: false
+    missTrack: false
+    missVolume: false
     modelUprightDeg: false
     moodFaceText: false
     nearbyCooldownS: false
     nearbyRangeCm: false
     neonMaterial: false
+    overTrack: false
+    personalSpaceCm: false
+    personalSpaceEaseRate: false
     pinchAsSwing: false
     plateMargin: false
     plateRadius: false
@@ -104,7 +118,9 @@
     rareChance: false
     rarePrefab: false
     rareScaleMult: false
+    rareTrack: false
     requireStart: false
+    restartTex: false
     returnSpeedCm: false
     roomCeilingCm: false
     roomFloorCm: false
@@ -120,10 +136,14 @@
     scoreText: false
     separationCm: false
     serverUrl: false
+    sharedButton: false
+    sharedButtonLabel: false
+    sharedButtonText: false
     simulate: false
     skittishChance: false
     sneakRangeCm: false
     sneakSpookCm: false
+    soloButtonLabel: false
     spawnAllAround: false
     spawnHeightSpreadCm: false
     spawnMaxCm: false
@@ -140,9 +160,41 @@
     startTitle: false
     startTitleLabel: false
     startTitleText: false
+    statusYCm: false
+    superDepthWrite: false
+    superMaterialSlots: false
+    superModelScaleMult: false
+    superPrefab: false
+    superRareChance: false
+    superRarePoints: false
+    superRareScaleMult: false
+    superSwimClipSeconds: false
+    superTrack: false
     swimClipSeconds: false
     swimSpeed: false
     tiltVarietyDeg: false
+    uiArt32Aspect: false
+    uiButtonHeightCm: false
+    uiButtonYCm: false
+    uiCount: false
+    uiCountHeightCm: false
+    uiGameOver: false
+    uiGameOverHeightCm: false
+    uiGameOverYCm: false
+    uiGoAspect: false
+    uiIdleBreath: false
+    uiMulti: false
+    uiPressFlare: false
+    uiPressSquash: false
+    uiRestart: false
+    uiRestartHeightCm: false
+    uiRestartYCm: false
+    uiSolo: false
+    uiSound: false
+    uiTitle: false
+    uiTitleHeightCm: false
+    uiTitleYCm: false
+    uiVolume: false
     useMercy: false
     usePinchToSwing: false
     useRoomBounds: false
@@ -161,6 +213,7 @@
     - internetModule: !<reference.InternetModule> 00000000-0000-0000-0000-000000000000
       creaturePrefab: !<reference.ObjectPrefab> 00000000-0000-0000-0000-000000000000
       rarePrefab: !<reference.ObjectPrefab> 00000000-0000-0000-0000-000000000000
+      superPrefab: !<reference.ObjectPrefab> 00000000-0000-0000-0000-000000000000
       burstPrefab: !<reference.ObjectPrefab> 00000000-0000-0000-0000-000000000000
       creatureParent: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
       camera: !<reference.Camera> 00000000-0000-0000-0000-000000000000
@@ -171,6 +224,15 @@
       ambientTrack: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
       captureVolume: !<float> 1.000000
       ambientVolume: 0.400000
+      uiSound: !<reference.AudioComponent> 00000000-0000-0000-0000-000000000000
+      rareTrack: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      superTrack: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      missTrack: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      countTrack: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      goTrack: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      overTrack: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      missVolume: 0.450000
+      uiVolume: 0.900000
       serverUrl: "ws://192.168.1.50:8765"
       simulate: true
       usePinchToSwing: true
@@ -205,6 +267,12 @@
       bloomMultiplier: !<float> 2.000000
       rareChance: 0.220000
       skittishChance: 0.350000
+      superRareChance: 0.050000
+      superRareScaleMult: 1.600000
+      superModelScaleMult: 106.169998
+      superDepthWrite: true
+      superMaterialSlots: !<float> 5.000000
+      superRarePoints: !<float> 8.000000
       creatureScale: !<float> 1.000000
       rareScaleMult: 1.350000
       neonMaterial: !<reference.Material> 00000000-0000-0000-0000-000000000000
@@ -222,6 +290,7 @@
       alertHoldS: 0.220000
       leashMaxCm: !<float> 260.000000
       swimClipSeconds: 4.125000
+      superSwimClipSeconds: 16.666700
       swimSpeed: 2.200000
       pulseAmount: 0.120000
       spinRate: 0.350000
@@ -231,6 +300,8 @@
       roomRadiusCm: !<float> 170.000000
       roomCeilingCm: !<float> 55.000000
       roomFloorCm: !<float> 110.000000
+      personalSpaceCm: !<float> 75.000000
+      personalSpaceEaseRate: !<float> 4.000000
       schoolCount: !<float> 2.000000
       schoolSpreadCm: !<float> 70.000000
       schoolMidCm: !<float> 170.000000
@@ -261,6 +332,38 @@
       startStatusText: !<reference.Text> 00000000-0000-0000-0000-000000000000
       startButton: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
       startButtonText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      sharedButton: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      sharedButtonText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      soloButtonLabel: SOLO
+      sharedButtonLabel: SHARED
+      buttonSpreadCm: !<float> 11.000000
+      uiTitle: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      uiSolo: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      uiMulti: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      uiCount: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      statusYCm: !<float> -11.000000
+      uiGameOver: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      uiRestart: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      gameOverTex: !<reference.Texture> 00000000-0000-0000-0000-000000000000
+      restartTex: !<reference.Texture> 00000000-0000-0000-0000-000000000000
+      countTex1: !<reference.Texture> 00000000-0000-0000-0000-000000000000
+      countTex2: !<reference.Texture> 00000000-0000-0000-0000-000000000000
+      countTex3: !<reference.Texture> 00000000-0000-0000-0000-000000000000
+      countTexGo: !<reference.Texture> 00000000-0000-0000-0000-000000000000
+      uiGoAspect: 1.500000
+      uiTitleHeightCm: !<float> 26.000000
+      uiButtonHeightCm: !<float> 9.000000
+      uiCountHeightCm: !<float> 30.000000
+      uiTitleYCm: !<float> 15.000000
+      uiButtonYCm: !<float> -4.000000
+      uiGameOverHeightCm: !<float> 17.000000
+      uiGameOverYCm: !<float> 19.000000
+      uiRestartHeightCm: !<float> 11.000000
+      uiRestartYCm: !<float> -9.000000
+      uiArt32Aspect: 1.500000
+      uiPressSquash: 0.160000
+      uiPressFlare: 0.900000
+      uiIdleBreath: 0.020000
       startTitleLabel: NEON-NET
       startButtonLabel: BEGIN
       attractDim: 0.300000
@@ -274,6 +377,7 @@
       hudShoalYCm: !<float> -22.000000
       labelSpacing: 1.600000
       countdownSeconds: !<float> 3.000000
+      goHoldS: 0.600000
       useMercy: true
       mercyMisses: !<float> 2.000000
       mercySeconds: !<float> 6.000000
@@ -288,6 +392,7 @@
     - // @input Asset.InternetModule internetModule
     - // @input Asset.ObjectPrefab creaturePrefab
     - // @input Asset.ObjectPrefab rarePrefab
+    - // @input Asset.ObjectPrefab superPrefab
     - // @input Asset.ObjectPrefab burstPrefab
     - // @input SceneObject creatureParent
     - // @input Component.Camera camera
@@ -298,7 +403,16 @@
     - // @input Asset.AudioTrackAsset ambientTrack
     - // @input float captureVolume = 1
     - // @input float ambientVolume
-    - '// @input string serverUrl = "ws://192.168.1.50:8765"'
+    - // @input Component.AudioComponent uiSound
+    - // @input Asset.AudioTrackAsset rareTrack
+    - // @input Asset.AudioTrackAsset superTrack
+    - // @input Asset.AudioTrackAsset missTrack
+    - // @input Asset.AudioTrackAsset countTrack
+    - // @input Asset.AudioTrackAsset goTrack
+    - // @input Asset.AudioTrackAsset overTrack
+    - // @input float missVolume = 0.45
+    - // @input float uiVolume = 0.9
+    - '// @input string serverUrl = "ws://172.20.10.2:8765"'
     - // @input bool simulate = true
     - // @input bool usePinchToSwing = true
     - // @input bool pinchAsSwing
@@ -314,13 +428,13 @@
     - // @input float nearbyRangeCm = 90
     - // @input float nearbyCooldownS = 2.5
     - // @input bool useSwingQuality = true
-    - // @input float gentleSwingG = 4.6
+    - // @input float gentleSwingG = 4
     - // @input float sneakRangeCm = 85
     - // @input float lungeRangeCm = 170
     - // @input float sneakSpookCm = 40
     - // @input float lungeSpookCm = 120
     - // @input float catchFlyS = 0.2
-    - // @input float catchFlyToCm = 35
+    - // @input float catchFlyToCm = 75
     - // @input float burstMotes = 6
     - // @input float burstSpreadCm = 26
     - // @input float burstLifeS = 0.45
@@ -332,6 +446,12 @@
     - // @input float bloomMultiplier = 2
     - // @input float rareChance = 0.22
     - // @input float skittishChance = 0.35
+    - // @input float superRareChance = 0.05
+    - // @input float superRareScaleMult = 1.2
+    - // @input float superModelScaleMult = 106.17
+    - // @input bool superDepthWrite = true
+    - // @input float superMaterialSlots = 5
+    - // @input float superRarePoints = 8
     - // @input float creatureScale = 0.06
     - // @input float rareScaleMult = 1.35
     - // @input Asset.Material neonMaterial
@@ -349,22 +469,25 @@
     - // @input float alertHoldS = 0.22
     - // @input float leashMaxCm = 260
     - // @input float swimClipSeconds = 4.125
+    - // @input float superSwimClipSeconds = 16.6667
     - // @input float swimSpeed = 1.4
     - // @input float pulseAmount
     - // @input float spinRate = 0.35
-    - // @input bool useWorldMesh = true
+    - // @input bool useWorldMesh
     - // @input float wallMarginCm = 25
     - // @input bool useRoomBounds = true
     - // @input float roomRadiusCm = 170
     - // @input float roomCeilingCm = 55
     - // @input float roomFloorCm = 110
+    - // @input float personalSpaceCm = 75
+    - // @input float personalSpaceEaseRate = 4
     - // @input float schoolCount = 2
     - // @input float schoolSpreadCm = 70
     - // @input float schoolMidCm = 170
     - // @input float schoolFarCm = 250
     - // @input float schoolNearCm = 100
     - // @input float schoolDriftRate = 0.12
-    - // @input float curiousDistanceCm = 85
+    - // @input float curiousDistanceCm = 95
     - // @input float cohesionCalm = 0.15
     - // @input float cohesionSpooked = 0.75
     - // @input float cohesionCurious
@@ -388,6 +511,38 @@
     - // @input Component.Text startStatusText
     - // @input SceneObject startButton
     - // @input Component.Text startButtonText
+    - // @input SceneObject sharedButton
+    - // @input Component.Text sharedButtonText
+    - '// @input string soloButtonLabel = "SOLO"'
+    - '// @input string sharedButtonLabel = "SHARED"'
+    - // @input float buttonSpreadCm = 13
+    - // @input SceneObject uiTitle
+    - // @input SceneObject uiSolo
+    - // @input SceneObject uiMulti
+    - // @input SceneObject uiCount
+    - // @input float statusYCm = -14
+    - // @input SceneObject uiGameOver
+    - // @input SceneObject uiRestart
+    - // @input Asset.Texture gameOverTex
+    - // @input Asset.Texture restartTex
+    - // @input Asset.Texture countTex1
+    - // @input Asset.Texture countTex2
+    - // @input Asset.Texture countTex3
+    - // @input Asset.Texture countTexGo
+    - // @input float uiGoAspect = 1.5
+    - // @input float uiTitleHeightCm = 26
+    - // @input float uiButtonHeightCm = 9
+    - // @input float uiCountHeightCm = 30
+    - // @input float uiTitleYCm = 15
+    - // @input float uiButtonYCm = -4
+    - // @input float uiGameOverHeightCm = 17
+    - // @input float uiGameOverYCm = 19
+    - // @input float uiRestartHeightCm = 11
+    - // @input float uiRestartYCm = -9
+    - // @input float uiArt32Aspect = 1.5
+    - // @input float uiPressSquash = 0.16
+    - // @input float uiPressFlare = 0.9
+    - // @input float uiIdleBreath = 0.02
     - '// @input string startTitleLabel = "NEON-NET"'
     - '// @input string startButtonLabel = "BEGIN"'
     - // @input float attractDim = 0.45
@@ -401,6 +556,7 @@
     - // @input float hudShoalYCm = -22
     - // @input float labelSpacing
     - // @input float countdownSeconds = 3
+    - // @input float goHoldS = 0.6
     - // @input bool useMercy = true
     - // @input float mercyMisses = 2
     - // @input float mercySeconds = 6

@@ -40,6 +40,8 @@ import { Interactable } from 'SpectaclesInteractionKit.lspkg/Components/Interact
 const KIND_DRIFTER = 0;
 const KIND_SKITTISH = 1;
 const KIND_LUMEN = 2;
+const KIND_ABYSSAL = 3;      // super rare, worth the most, hardest to reach
+const KIND_COUNT = 4;
 
 // Shoal mood, driven entirely by what the player just did. Unlike emergent
 // flocking this is deterministic: the same run of catches produces the same
@@ -61,9 +63,42 @@ const ST_RETURN = 3;
 const COL_DRIFTER = new vec4(0.15, 0.95, 1.0, 1.0);   // cyan
 const COL_SKITTISH = new vec4(0.45, 0.5, 1.0, 1.0);   // violet
 const COL_LUMEN = new vec4(1.0, 0.8, 0.15, 1.0);      // gold
+// Rose magenta for the Abyssal. Deliberately the one hue not already in use:
+// against cyan, violet and gold it is unmistakable at a glance and across a
+// room, which is the whole job of a creature you see once a round.
+const COL_ABYSSAL = new vec4(1.0, 0.3, 0.72, 1.0);
+// A miss. Near white with the faintest cool cast: it has to be legible on an
+// additive display, where a grey would simply vanish, while clearly not being
+// any creature's colour.
+const COL_MISS = new vec4(0.78, 0.84, 0.9, 1.0);
+
+/** The tint for a kind. One place, so nothing drifts out of step. */
+function colourFor(kind: number): vec4 {
+  if (kind === KIND_ABYSSAL) return COL_ABYSSAL;
+  if (kind === KIND_LUMEN) return COL_LUMEN;
+  if (kind === KIND_SKITTISH) return COL_SKITTISH;
+  return COL_DRIFTER;
+}
+
+/** What a kind is called. One place, so every readout agrees. */
+function nameFor(kind: number): string {
+  if (kind === KIND_ABYSSAL) return 'ABYSSAL';
+  if (kind === KIND_LUMEN) return 'LUMEN';
+  if (kind === KIND_SKITTISH) return 'SKITTISH';
+  return 'DRIFTER';
+}
+
+/** Rare kinds shimmer towards invisible once the board raises difficulty. */
+function cloaksWhenHard(kind: number): boolean {
+  return kind === KIND_LUMEN || kind === KIND_ABYSSAL;
+}
 
 interface Creature {
   obj: SceneObject;
+  // The board's id for this creature, in shared mode. -1 when the shoal is
+  // simulated locally, which is how SOLO works and how SHARED degrades if the
+  // board goes away mid round.
+  id: number;
   school: number;
   kind: number;
   state: number;
@@ -81,6 +116,10 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input @allowUndefined internetModule: InternetModule;
   @input creaturePrefab: ObjectPrefab;
   @input('Asset.ObjectPrefab') @allowUndefined rarePrefab: ObjectPrefab;
+  // The Abyssal's own model (Spotted-Jelly). Optional: unwired, the Abyssal
+  // falls back to the rare or common model and is still told apart by its
+  // colour, its size and its chime.
+  @input('Asset.ObjectPrefab') @allowUndefined superPrefab: ObjectPrefab;
   @input('Asset.ObjectPrefab') @allowUndefined burstPrefab: ObjectPrefab;
   @input('SceneObject') @allowUndefined creatureParent: SceneObject;
   @input camera: Camera;
@@ -103,7 +142,29 @@ export class LumiCatchManager extends BaseScriptComponent {
   // Raise this if a filmed take wants atmosphere under it.
   @input ambientVolume: number = 0.0;
 
-  @input serverUrl: string = 'ws://192.168.1.50:8765';
+  // ---- The rest of the sound design ----
+  //
+  // One emitter, many tracks. An AudioComponent per sound would mean seven
+  // more scene objects to keep in step, and these are all interface sounds
+  // that belong at your ear rather than out in the room: only the capture
+  // chime is spatialised, because only it has a position worth hearing.
+  //
+  // Every track is optional. A missing one is silent rather than an error, so
+  // a half-wired scene still plays.
+  @input('Component.AudioComponent') @allowUndefined uiSound: AudioComponent;
+  // Per kind catch chimes. What you caught should be audible before you have
+  // read the popup, which on a 27 degree display is most of the value.
+  @input('Asset.AudioTrackAsset') @allowUndefined rareTrack: AudioTrackAsset;
+  @input('Asset.AudioTrackAsset') @allowUndefined superTrack: AudioTrackAsset;
+  @input('Asset.AudioTrackAsset') @allowUndefined missTrack: AudioTrackAsset;
+  @input('Asset.AudioTrackAsset') @allowUndefined countTrack: AudioTrackAsset;
+  @input('Asset.AudioTrackAsset') @allowUndefined goTrack: AudioTrackAsset;
+  @input('Asset.AudioTrackAsset') @allowUndefined overTrack: AudioTrackAsset;
+  // A miss fires far more often than a catch, so it is mixed well under one.
+  @input missVolume: number = 0.45;
+  @input uiVolume: number = 0.9;
+
+  @input serverUrl: string = 'ws://172.20.10.2:8765';
   @input simulate: boolean = true;
   @input usePinchToSwing: boolean = true;
 
@@ -144,7 +205,10 @@ export class LumiCatchManager extends BaseScriptComponent {
   // Thresholds are in g and must be re-measured on the assembled net. Walking
   // already reads 2 to 3 g, so the gentle band sits above that, not below it.
   @input useSwingQuality: boolean = true;   // off restores the old flat reach
-  @input gentleSwingG: number = 4.6;        // under this is a sneak
+  // Lowered with the firmware threshold, which went 3.5 -> 3.0. The split has
+  // to sit inside the band of swings that actually register, and 4.6 left
+  // almost nothing counting as a sneak once the floor moved.
+  @input gentleSwingG: number = 4.0;        // under this is a sneak
   @input sneakRangeCm: number = 85;
   @input lungeRangeCm: number = 170;
   @input sneakSpookCm: number = 40;         // a sneak disturbs almost nothing
@@ -156,7 +220,14 @@ export class LumiCatchManager extends BaseScriptComponent {
   // burst of motes thrown off. burstPrefab is the old sphere creature prefab,
   // so this costs no new assets.
   @input catchFlyS: number = 0.2;           // how long the rush into the net takes
-  @input catchFlyToCm: number = 35;         // how close to the face it ends
+  // Where the caught creature stops on its way in. NOT closer than about 70.
+  //
+  // This was 35, and it produced a flash of solid colour on every catch: at
+  // 35 cm a 20 cm creature subtends 32 degrees, and the display is 27 degrees
+  // wide, so for a frame or two the creature simply filled the view in its own
+  // colour. It read as a bug because it looked like one. At 75 it subtends 15
+  // degrees, which is a jellyfish rushing at you rather than a screen wipe.
+  @input catchFlyToCm: number = 75;
   @input burstMotes: number = 6;
   @input burstSpreadCm: number = 26;
   @input burstLifeS: number = 0.45;
@@ -179,6 +250,32 @@ export class LumiCatchManager extends BaseScriptComponent {
   // ---- Creature mix ----
   @input rareChance: number = 0.22;
   @input skittishChance: number = 0.35;
+  // The Abyssal. Rare enough that seeing one is an event, not a routine.
+  // At 0.05 with fourteen creatures you expect fewer than one on screen, and
+  // a fresh one only every several respawns.
+  @input superRareChance: number = 0.05;
+  // 1.6 -> 1.2 after seeing it in play: the Abyssal read as oversized rather
+  // than as a prize. This is the ART dial. superModelScaleMult below is the
+  // unit correction and must NOT be used for this, or the two get conflated
+  // and the next model swap re-measures the wrong number.
+  @input superRareScaleMult: number = 1.2;
+  // Unit correction for the Abyssal's model, NOT an art decision. Measured
+  // from the two glTF files: simple_jellyfish's mesh node carries a 100x
+  // scale and its mesh is 3.14 units across; Spotted-Jelly's carries 1x and
+  // its mesh is 2.96. 314.37 / 2.961 = 106.17. Only applies when superPrefab
+  // is actually in use; swap that model and this number must be re-measured.
+  @input superModelScaleMult: number = 106.17;
+  // Depth write for the Abyssal alone. See tint(): its model is dense enough
+  // that blending without it saturates towards white. Turn this off to get the
+  // softer translucent look back, at the cost of the white patching.
+  @input superDepthWrite: boolean = true;
+  // How many material slots to write on the Abyssal's model. Its glTF mesh is
+  // five primitives with five materials, but the imported visual reports one,
+  // so the other four keep the model's own plain grey unless we write them
+  // anyway. Raise this if a new model has more sub-meshes.
+  @input superMaterialSlots: number = 5;
+  @input superRarePoints: number = 8;
+
   // Tuned against the skeleton, measured: the creature spans 33.2 cm tall at
   // scale 0.10, so 0.055 puts it at roughly 20 cm, about a large grapefruit.
   // Big enough to read at 1 to 3 m on a 27 degree display.
@@ -262,6 +359,9 @@ export class LumiCatchManager extends BaseScriptComponent {
   // with end = 0.1375, so the player loops a 137 ms sliver and the creature
   // barely moves. 0 leaves the imported value alone.
   @input swimClipSeconds: number = 4.125;
+  // Spotted-Jelly's clip, read straight out of the glTF accessor: its longest
+  // keyframe time is 16.6667 s. Do not guess this from watching it loop.
+  @input superSwimClipSeconds: number = 16.6667;
 
   // How fast to play the swim cycle. 1.0 is the clip as authored.
   @input swimSpeed: number = 1.4;
@@ -286,12 +386,37 @@ export class LumiCatchManager extends BaseScriptComponent {
   // and see whether anything solid is in the way. The play volume below stays
   // on as a backstop, because it costs nothing and covers the case where the
   // room has not been scanned yet.
-  @input useWorldMesh: boolean = true;
+  // OFF. It was the primary wall defence and it did not work, for two reasons
+  // that only showed up in a real room:
+  //
+  //   1. It checks ONE creature per frame, round robin. At 14 creatures that
+  //      is about four checks a second each, and the hit test is asynchronous
+  //      on top of that. A creature drifting at the wall is simply through it
+  //      before its turn comes round.
+  //   2. Its correction pulls the creature back along the ray FROM YOUR HEAD,
+  //      which means the fix for a creature near a wall is to bring it closer
+  //      to your face. That fights personalSpaceCm directly.
+  //
+  // The play volume below is now the only wall rule, and it is the one to
+  // tune: set roomRadiusCm to the distance from where you stand to the
+  // nearest wall. A hard volume that is slightly too small always looks
+  // better on camera than a clever one that lets creatures through.
+  @input useWorldMesh: boolean = false;
   @input wallMarginCm: number = 25;     // keep this far off any surface
   @input useRoomBounds: boolean = true;
   @input roomRadiusCm: number = 170;    // horizontal reach from the centre
   @input roomCeilingCm: number = 55;    // above head height
   @input roomFloorCm: number = 110;     // below head height
+
+  // Personal space. Nothing may end a frame closer to your head than this,
+  // whatever drift, cohesion, separation or a flee path was trying to do.
+  // Every one of those can pull a creature inside spawnMinCm on its own: the
+  // drift wobble alone is worth 22 cm, and two of them pushing apart can shove
+  // a third straight at you. Clamped once, after every other rule has had its
+  // say, because chasing each contributor separately is how one of them gets
+  // missed.
+  @input personalSpaceCm: number = 75;
+  @input personalSpaceEaseRate: number = 4.0;  // how briskly it is pushed back
 
   // ---- Schools and mood ----
   @input schoolCount: number = 2;
@@ -300,7 +425,10 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input schoolFarCm: number = 250;        // when spooked, they back off to here
   @input schoolNearCm: number = 100;       // when curious, they close in to here
   @input schoolDriftRate: number = 0.12;   // radians per second, schools counter rotate
-  @input curiousDistanceCm: number = 85;   // how close an inquisitive one comes
+  // Kept above personalSpaceCm at its lowest roll (x0.8), or the curious mood
+  // spends the whole round shoving creatures into the clamp and being pushed
+  // back out again.
+  @input curiousDistanceCm: number = 95;   // how close an inquisitive one comes
   @input cohesionCalm: number = 0.15;
   @input cohesionSpooked: number = 0.75;   // tight shoal
   @input cohesionCurious: number = 0.0;    // fully dispersed
@@ -340,6 +468,82 @@ export class LumiCatchManager extends BaseScriptComponent {
   @input('Component.Text') @allowUndefined startStatusText: Text;
   @input('SceneObject') @allowUndefined startButton: SceneObject;
   @input('Component.Text') @allowUndefined startButtonText: Text;
+  // The second button. The start screen offers the two games side by side and
+  // starts the one you touch, rather than making you set a mode and then press
+  // BEGIN: one decision, one press.
+  @input('SceneObject') @allowUndefined sharedButton: SceneObject;
+  @input('Component.Text') @allowUndefined sharedButtonText: Text;
+  @input soloButtonLabel: string = 'SOLO';
+  @input sharedButtonLabel: string = 'SHARED';
+  @input buttonSpreadCm: number = 13;   // half the gap between the two
+
+  // ---- Start screen artwork ----
+  //
+  // Painted PNGs on plane meshes, rather than text on a plate. Set these and
+  // the text versions switch themselves off; leave them empty and the Lens
+  // falls back to the typographic start screen, which is still there and still
+  // works. Each plane is a 1x1 unit quad, so width is set from the art's own
+  // aspect ratio and only the height is a tuning number.
+  @input('SceneObject') @allowUndefined uiTitle: SceneObject;
+  @input('SceneObject') @allowUndefined uiSolo: SceneObject;
+  @input('SceneObject') @allowUndefined uiMulti: SceneObject;
+  @input('SceneObject') @allowUndefined uiCount: SceneObject;
+  // The end of round pair: a GAME OVER banner and a RESTART button. Both 3:2.
+  // RESTART deliberately reuses the SOLO button's collider rather than adding a
+  // third interactable, so the thing you press at the end of a round is the
+  // same proven hit target you pressed at the start of it.
+  // Where the connection line sits on the start screen. It used to be at
+  // -14 to clear a row of legend cards that no longer exists.
+  @input statusYCm: number = -14;
+
+
+  @input('SceneObject') @allowUndefined uiGameOver: SceneObject;
+  @input('SceneObject') @allowUndefined uiRestart: SceneObject;
+  // Both quads are built on a copy of the wordmark's material, because a
+  // painted quad needs the same unlit, premultiplied setup and rebuilding that
+  // by hand is how a panel ends up subtly different from its neighbours. The
+  // script clones it once and swaps the texture, the same trick tint() uses on
+  // the creatures. Sharing one material asset directly would make both quads
+  // show whichever texture was set last.
+  @input('Asset.Texture') @allowUndefined gameOverTex: Texture;
+  @input('Asset.Texture') @allowUndefined restartTex: Texture;
+
+  // The three countdown digits. One plane, one material, texture swapped per
+  // number: three planes would be three things to keep in step.
+  @input('Asset.Texture') @allowUndefined countTex1: Texture;
+  @input('Asset.Texture') @allowUndefined countTex2: Texture;
+  @input('Asset.Texture') @allowUndefined countTex3: Texture;
+  // GO is a different shape from the digits: 1536 x 1024 against their square
+  // 1254, so it needs its own aspect or it comes out stretched.
+  @input('Asset.Texture') @allowUndefined countTexGo: Texture;
+  @input uiGoAspect: number = 1.5;
+
+  @input uiTitleHeightCm: number = 26;    // the square wordmark
+  @input uiButtonHeightCm: number = 9;    // the pill buttons, 2:1 art
+  @input uiCountHeightCm: number = 30;    // the countdown digits
+  @input uiTitleYCm: number = 15;
+  // Where both buttons sit, vertically.
+  //
+  // ONE source of truth on purpose. This was written in three places at once:
+  // the invisible collider, the text label and the painted art. The collider
+  // was left at y=2 while the art moved to -4, so the buttons looked like they
+  // did nothing and tapping six centimetres ABOVE them worked instead. A hit
+  // volume and the thing it represents must never be positioned separately.
+  @input uiButtonYCm: number = -4;
+  // The end of round screen. Same rule as uiButtonYCm: uiRestartYCm is the ONE
+  // place the restart button's height is written, and the collider reads it
+  // too. The banner sits above the score line, the button below it.
+  @input uiGameOverHeightCm: number = 17;
+  @input uiGameOverYCm: number = 19;
+  @input uiRestartHeightCm: number = 11;
+  @input uiRestartYCm: number = -9;
+  @input uiArt32Aspect: number = 1.5;   // both end of round images are 1536x1024
+  // Press feedback. The art squashes and flares on contact, because the thing
+  // being pressed is invisible: without this the only confirmation is the
+  // haptic, and in a filmed take nobody watching can feel that.
+  @input uiPressSquash: number = 0.16;   // how far it compresses
+  @input uiPressFlare: number = 0.9;     // how much brighter it goes
+  @input uiIdleBreath: number = 0.02;    // gentle life while waiting
   @input startTitleLabel: string = 'NEON-NET';
   @input startButtonLabel: string = 'BEGIN';
   @input attractDim: number = 0.45;     // creature brightness before starting
@@ -376,6 +580,7 @@ export class LumiCatchManager extends BaseScriptComponent {
   // hard as the button does.
   @input labelSpacing: number = 0.0;
   @input countdownSeconds: number = 3;  // 0 skips the 3-2-1 entirely
+  @input goHoldS: number = 0.6;         // how long GO is held before play
 
   // ---- Demo safeguards ----
   @input useMercy: boolean = true;
@@ -441,10 +646,29 @@ export class LumiCatchManager extends BaseScriptComponent {
   private predictLabel: string = '';
   private catchPopT: number = -1;
   private catchLabel: string = '';
+  // A miss reuses the same popup slot but has to be told apart from a catch,
+  // and reading the label text to decide its colour is how the catch popup
+  // already gets this subtly wrong. An explicit flag instead.
+  private catchIsMiss: boolean = false;
+  // Which kind the popup is describing, or -1 for a miss, a bloom or a
+  // remote player's catch. Colours the popup without reading its text back.
+  private catchKind: number = -1;
+  private missReason: string = '';
+  private paintReported: boolean[] = [];
   private roundOver: boolean = false;
   private bestScore: number = 0;
   private pressT: number = -1;          // button press animation, seconds
   private countdownLeft: number = -1;   // 3-2-1 before the round, seconds
+
+  // ---- shared play ----
+  // sharedMode is what the player chose; sharedLive is whether the board is
+  // actually feeding us a shoal. They differ for the first second of a round,
+  // and for as long as a shared game keeps running after the board goes quiet.
+  private sharedMode: boolean = false;
+  private sharedLive: boolean = false;
+  private lastShoalAt: number = -99;
+  private poseSentAt: number = -99;
+  private playerId: number = -1;
   private startMats: Material[] = [null, null];   // button body, title
 
   onAwake() {
@@ -505,6 +729,7 @@ export class LumiCatchManager extends BaseScriptComponent {
     );
 
     this.setupAudio();
+    this.setupEndArt();
 
     if (this.simulate) {
       print('LumiCatch: SIMULATE mode. Click in preview or pinch on device. No hardware needed.');
@@ -542,6 +767,59 @@ export class LumiCatchManager extends BaseScriptComponent {
       }
       this.ambientSound.play(-1);   // -1 = loop forever
     }
+
+    if (this.uiSound) {
+      // Flat, not spatialised. These are sounds the game makes, not sounds
+      // anything in the room makes, and a countdown that drifts to your left
+      // as you turn your head is unsettling for no gain.
+      this.uiSound.volume = this.uiVolume;
+      try {
+        this.uiSound.spatialAudio.enabled = false;
+      } catch (e) {
+        // older runtimes may not expose it, harmless
+      }
+    }
+  }
+
+  /**
+   * Play a one shot through the shared interface emitter.
+   *
+   * Swapping audioTrack on a playing component cuts the previous sound, which
+   * is what we want here: two countdown ticks should never overlap, and a
+   * catch landing during a miss whiff should replace it rather than muddle
+   * with it. Silent and harmless if the track was never wired.
+   */
+  private playUi(track: AudioTrackAsset, volume: number) {
+    if (!this.uiSound || !track) return;
+    // ORDER MATTERS. The track is assigned FIRST.
+    //
+    // An AudioComponent has no internal player until it has been given a
+    // track, and calling stop() before that throws 'Audio player is not
+    // enabled', which killed the whole script on the very first countdown
+    // tick. Assigning the track creates the player, so stop() is then safe.
+    //
+    // Both calls are still guarded, because this runs on the filming path and
+    // no sound effect is worth taking the game down for.
+    this.uiSound.audioTrack = track;
+    this.uiSound.volume = volume;
+    try {
+      this.uiSound.stop(false);
+    } catch (e) {
+      // nothing was playing, which is the normal case
+    }
+    try {
+      this.uiSound.play(1);
+    } catch (e) {
+      print('LumiCatch: could not play a UI sound, continuing');
+    }
+  }
+
+  private playMiss() {
+    this.playUi(this.missTrack, this.missVolume);
+  }
+
+  private playGameOver() {
+    this.playUi(this.overTrack, this.uiVolume);
   }
 
   private bindPinch() {
@@ -644,6 +922,37 @@ export class LumiCatchManager extends BaseScriptComponent {
       return;
     }
 
+    // The board confirms which game we are in, and who we are.
+    if (data.type === 'mode') {
+      this.playerId = data.player;
+      print('LumiCatch: board has us as player ' + this.playerId +
+            ' in ' + data.mode + ' play');
+      return;
+    }
+
+    // The shared shoal, straight from the board. This replaces the local
+    // creature AI entirely while it keeps arriving.
+    if (data.type === 'shoal') {
+      this.onShoal(data);
+      return;
+    }
+
+    // Somebody caught something. Possibly us, possibly the other player.
+    if (data.type === 'taken') {
+      this.onTaken(data);
+      return;
+    }
+
+    // Our claim was ruled on. A refusal means another player got there first,
+    // or the creature had already spotted us. Either way it is not a catch,
+    // and the board has the last word.
+    if (data.type === 'claimed') {
+      if (data.ok !== true) {
+        print('LumiCatch: claim on #' + data.id + ' refused');
+      }
+      return;
+    }
+
     // Adaptive difficulty from the UNO Q.
     if (data.type === 'difficulty') {
       this.diffLevel = data.level || 0;
@@ -660,6 +969,167 @@ export class LumiCatchManager extends BaseScriptComponent {
         (this.diffCloaking ? ', cloaking on' : '')
       );
     }
+  }
+
+  /**
+   * Take the board's shoal and make the scene match it.
+   *
+   * Reconciles by id: creatures the board knows about that we have not built
+   * get built, ones we have get moved, and ones the board has dropped get
+   * removed. Positions are eased rather than snapped, because the board sends
+   * 15 packets a second and the display runs far faster than that.
+   */
+  private onShoal(data: any) {
+    const list = data.c;
+    if (!list) return;
+
+    // First packet of a shared game: clear the creatures this headset spawned
+    // for itself. Without this the board's shoal arrives on top of the local
+    // one and the room holds twice as many jellyfish as it should, half of
+    // them invisible to the other player.
+    if (!this.sharedLive) {
+      for (let i = this.creatures.length - 1; i >= 0; i--) {
+        if (this.creatures[i].id < 0) {
+          this.creatures[i].obj.destroy();
+          this.creatures.splice(i, 1);
+        }
+      }
+      print('LumiCatch: the board has the shoal now');
+    }
+
+    this.sharedLive = true;
+    this.lastShoalAt = this.elapsed;
+
+    const origin = this.roomOrigin();
+    const seen: number[] = [];
+
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      seen.push(e.i);
+      const world = new vec3(origin.x + e.x, origin.y + e.y, origin.z + e.z);
+
+      let c: Creature = null;
+      for (let j = 0; j < this.creatures.length; j++) {
+        if (this.creatures[j].id === e.i) {
+          c = this.creatures[j];
+          break;
+        }
+      }
+
+      if (!c) {
+        // A creature we have not met. Build it where the board says it is.
+        this.spawnCreature(e.k);
+        c = this.creatures[this.creatures.length - 1];
+        c.id = e.i;
+        c.pos = world;
+        c.home = world;
+      }
+
+      c.state = e.s;
+      c.home = world;          // the eased target for this frame
+    }
+
+    // Anything the board no longer lists has been caught by somebody, or has
+    // been retired. Drop it quietly: a catch by another player arrives as its
+    // own message and gets the full treatment there.
+    for (let i = this.creatures.length - 1; i >= 0; i--) {
+      const c = this.creatures[i];
+      if (c.id < 0) continue;                 // a local creature, leave it
+      if (seen.indexOf(c.id) >= 0) continue;
+      c.obj.destroy();
+      this.creatures.splice(i, 1);
+    }
+  }
+
+  /** Somebody landed a catch on the shared shoal. */
+  private onTaken(data: any) {
+    const mine = data.by === this.playerId;
+    for (let i = 0; i < this.creatures.length; i++) {
+      const c = this.creatures[i];
+      if (c.id !== data.id) continue;
+      if (mine) {
+        // Our catch: the full treatment, scored by the board's figure.
+        this.capture(i, true, data.points || this.pointsFor(c.kind));
+      } else {
+        // Theirs. Burst where it was so you see it happen, but no score, no
+        // chain and no haptic: the net in YOUR hand did not do that.
+        this.spawnBurst(c.pos);
+        c.obj.destroy();
+        this.creatures.splice(i, 1);
+        this.catchLabel = 'TAKEN\nBY PLAYER ' + data.by;
+        this.catchIsMiss = false;
+        this.catchKind = -1;
+        this.catchPopT = 0;
+      }
+      return;
+    }
+  }
+
+  /**
+   * True when the board is genuinely running the shoal for us right now.
+   *
+   * Not the same as the player having chosen shared play. If the board stops
+   * sending, this goes false and the Lens falls back to its own creatures
+   * rather than freezing a shoal nobody is moving.
+   */
+  private sharedActive(): boolean {
+    return (
+      this.sharedMode &&
+      this.sharedLive &&
+      this.elapsed - this.lastShoalAt < 2.0
+    );
+  }
+
+  /** Announce which game we are playing, so the board knows to include us. */
+  private sendHello() {
+    if (!this.connected || !this.socket) return;
+    this.socket.send(JSON.stringify({
+      type: 'hello', mode: this.sharedMode ? 'shared' : 'solo'
+    }));
+  }
+
+  /**
+   * Send our head pose in the shared room frame.
+   *
+   * The board needs it to know when a creature should bolt. Deliberately the
+   * only per-frame message the headset sends, and only in shared play: solo
+   * costs the network nothing.
+   */
+  private sendPose(camPos: vec3, fwd: vec3) {
+    if (!this.sharedMode || !this.connected || !this.socket) return;
+    if (this.elapsed - this.poseSentAt < 0.1) return;    // 10 Hz is plenty
+    this.poseSentAt = this.elapsed;
+    const o = this.roomOrigin();
+    this.socket.send(JSON.stringify({
+      type: 'pose',
+      x: Math.round((camPos.x - o.x) * 10) / 10,
+      y: Math.round((camPos.y - o.y) * 10) / 10,
+      z: Math.round((camPos.z - o.z) * 10) / 10,
+      fx: Math.round(fwd.x * 100) / 100,
+      fy: Math.round(fwd.y * 100) / 100,
+      fz: Math.round(fwd.z * 100) / 100
+    }));
+  }
+
+  /** Ask the board for a creature. It decides, and it may say no. */
+  private sendClaim(id: number) {
+    if (!this.connected || !this.socket) return;
+    this.socket.send(JSON.stringify({ type: 'claim', id: id }));
+  }
+
+  /**
+   * Where the shared room frame sits in this headset's world.
+   *
+   * The board works in a room frame centred on the play space. Each headset
+   * pins that frame to wherever it stood when the round began. Two players who
+   * start from roughly the same spot facing the same way then agree about
+   * where the creatures are. This is approximate colocation, not shared
+   * anchors: what is exact is the STATE, not the centimetres.
+   */
+  private roomOrigin(): vec3 {
+    return this.roomCentre
+      ? this.roomCentre
+      : this.camera.getTransform().getWorldPosition();
   }
 
   /** Tell the board whether that swing landed, so its model can adapt. */
@@ -748,33 +1218,25 @@ export class LumiCatchManager extends BaseScriptComponent {
     const attract =
       this.requireStart && !this.started ? this.attractDim : 1.0;
 
-    for (let i = 0; i < this.kindMaterials.length; i++) {
-      if (i === KIND_LUMEN) continue;    // handled below, it also cloaks
-      const m = this.kindMaterials[i];
-      if (!m) continue;
-      const base = i === KIND_SKITTISH ? COL_SKITTISH : COL_DRIFTER;
-      m.mainPass.baseColor = new vec4(
-        base.r * attract, base.g * attract, base.b * attract,
-        this.creatureOpacity
-      );
-    }
-
-    const mat = this.kindMaterials[KIND_LUMEN];
-    if (!mat) return;
-
-    let k = attract;
+    // One pass over every kind. Cloaking used to be special-cased for the
+    // Lumen alone; with a second rare kind that pattern would have needed
+    // copying, so the rule lives in cloaksWhenHard() instead.
+    let cloak = 1.0;
     if (this.diffCloaking) {
       // Dip to roughly 15 per cent brightness and back, about once a second.
       const wave = 0.5 * (1 + Math.sin(this.elapsed * 2.1));
-      k = (0.15 + 0.85 * wave * wave) * attract;
+      cloak = 0.15 + 0.85 * wave * wave;
     }
 
-    mat.mainPass.baseColor = new vec4(
-      COL_LUMEN.r * k,
-      COL_LUMEN.g * k,
-      COL_LUMEN.b * k,
-      this.creatureOpacity
-    );
+    for (let i = 0; i < this.kindMaterials.length; i++) {
+      const m = this.kindMaterials[i];
+      if (!m) continue;
+      const base = colourFor(i);
+      const k = attract * (cloaksWhenHard(i) ? cloak : 1.0);
+      m.mainPass.baseColor = new vec4(
+        base.r * k, base.g * k, base.b * k, this.creatureOpacity
+      );
+    }
   }
 
   // ---------------- Start screen ----------------
@@ -850,9 +1312,16 @@ export class LumiCatchManager extends BaseScriptComponent {
       print('LumiCatch: StartButton has no Interactable, cannot be pressed');
       return;
     }
+    it.onHoverEnter.add(() => print('LumiCatch: hovering SOLO'));
     it.onTriggerEnd.add(() => {
       if (!this.started && this.countdownLeft < 0) {
+        // This collider is SOLO on the start screen and RESTART at the end of
+        // a round. Only the first of those is a choice of mode: restarting
+        // should put you back into the game you were just playing, so a shared
+        // round restarts shared.
+        if (!this.roundOver) this.sharedMode = false;
         this.pressT = 0;
+        this.sendHello();
         if (this.countdownSeconds > 0) {
           // A beat between pressing and playing. It gives the player time to
           // raise the net and look up, and it gives a filmed take a clean
@@ -866,6 +1335,30 @@ export class LumiCatchManager extends BaseScriptComponent {
       }
     });
     print('LumiCatch: start button armed');
+
+    if (this.sharedButton) {
+      const si = this.sharedButton.getComponent(Interactable.getTypeName());
+      if (si) {
+        si.onHoverEnter.add(() => print('LumiCatch: hovering SHARED'));
+        si.onTriggerEnd.add(() => {
+          if (!this.started && this.countdownLeft < 0) {
+            this.sharedMode = true;
+            this.pressT = 0;
+            this.sendHello();
+            if (this.countdownSeconds > 0) {
+              this.countdownLeft = this.countdownSeconds;
+              this.sendHaptic(1);
+              print('LumiCatch: countdown, shared play');
+            } else {
+              this.beginGame();
+            }
+          }
+        });
+        print('LumiCatch: shared button armed');
+      } else {
+        print('LumiCatch: SharedButton has no Interactable, cannot be pressed');
+      }
+    }
   }
 
   /** Count the round down, and end it cleanly when time runs out. */
@@ -895,6 +1388,8 @@ export class LumiCatchManager extends BaseScriptComponent {
       this.bloomActive = true;
       for (let i = 0; i < this.bloomSpawnCount; i++) this.spawnCreature(-1);
       this.catchLabel = 'BLOOM\nx' + this.bloomMultiplier + '  ALL';
+      this.catchIsMiss = false;
+      this.catchKind = -1;
       this.catchPopT = 0;
       this.sendHaptic(2);
       print(
@@ -904,13 +1399,26 @@ export class LumiCatchManager extends BaseScriptComponent {
     }
 
     if (this.roundLeft > 0) return;
+    this.endRound();
+  }
 
+  /**
+   * One exit from a round, whether the clock ran out or the catch list was
+   * filled early. Two copies of this would drift, and the one that drifted
+   * would be the one that forgot to record the best score.
+   */
+  private endRound() {
+    if (this.roundOver) return;
     this.roundLeft = 0;
     this.roundOver = true;
     if (this.score > this.bestScore) this.bestScore = this.score;
 
     // Back to the attract state, but showing the result rather than the title.
     this.started = false;
+    this.playGameOver();
+    // Clear any catch or miss popup still fading, or it hangs over the game
+    // over card for a second looking like part of it.
+    this.catchPopT = -1;
     print('LumiCatch: round over, score ' + this.score);
   }
 
@@ -1003,11 +1511,15 @@ export class LumiCatchManager extends BaseScriptComponent {
     const before = Math.ceil(this.countdownLeft);
     this.countdownLeft -= dt;
     const after = Math.ceil(this.countdownLeft);
-    // One tick per whole number, so 3, 2 and 1 each get a pulse.
-    if (after !== before && after > 0) this.sendHaptic(1);
+    // One tick per whole number, so 3, 2 and 1 each get a pulse and a beep.
+    if (after !== before && after > 0) {
+      this.sendHaptic(1);
+      this.playUi(this.countTrack, this.uiVolume);
+    }
     if (this.countdownLeft <= 0) {
       this.countdownLeft = -1;
       this.sendHaptic(3);
+      this.playUi(this.goTrack, this.uiVolume);
       this.beginGame();
     }
   }
@@ -1018,13 +1530,28 @@ export class LumiCatchManager extends BaseScriptComponent {
     const showing = this.requireStart && !this.started;
 
     // Title, which doubles as the countdown and as the result headline.
-    if (this.startTitle) this.startTitle.enabled = showing;
-    if (this.startTitleText && showing) {
+    //
+    // With the painted start screen wired up this text is only used for the
+    // result ('SCORE 12'), because there is no artwork for a number that
+    // changes. The wordmark and the countdown are images.
+    const artOn = this.useArt();
+    const titleTextWanted = showing && (!artOn || this.roundOver);
+    if (this.startTitle) this.startTitle.enabled = titleTextWanted;
+    if (this.startTitleText && titleTextWanted) {
       const t = this.startTitleText.getSceneObject().getTransform();
       // The countdown number sits at eye level and large. The title sits
       // higher, because it has a button and a status line beneath it.
       const big = counting ? 3.4 : 1.9;
-      t.setLocalPosition(new vec3(0, counting ? 4 : 16, -this.hudDistanceCm));
+      // Three different jobs, three different places. The countdown owns the
+      // centre; the plain title sits high; the score has to clear the GAME
+      // OVER banner above it, which spans uiGameOverYCm plus or minus half of
+      // uiGameOverHeightCm, so it sits between the banner and the button.
+      const titleY = counting
+        ? 4
+        : this.roundOver && this.uiGameOver
+        ? this.uiGameOverYCm - this.uiGameOverHeightCm * 0.5 - 5
+        : 16;
+      t.setLocalPosition(new vec3(0, titleY, -this.hudDistanceCm));
       t.setLocalScale(new vec3(big, big, big));
 
       if (counting) {
@@ -1066,7 +1593,16 @@ export class LumiCatchManager extends BaseScriptComponent {
       this.startStatusText.getSceneObject().enabled = showing && !counting;
       if (showing && !counting) {
         const t = this.startStatusText.getSceneObject().getTransform();
-        t.setLocalPosition(new vec3(0, -14, -this.hudDistanceCm));
+        // 'best 24' is worth keeping on the end of round screen, but it has to
+        // drop below the RESTART button rather than sit inside it.
+        //
+        // Connection state is the one readout a player needs before pressing
+        // anything, so it sits clear of the buttons above it.
+        const statusY =
+          this.roundOver && this.uiRestart
+            ? this.uiRestartYCm - this.uiRestartHeightCm * 0.5 - 4
+            : this.statusYCm;
+        t.setLocalPosition(new vec3(0, statusY, -this.hudDistanceCm));
         t.setLocalScale(new vec3(0.75, 0.75, 0.75));
         this.startStatusText.text = this.startStatusLine();
         this.tracked(this.startStatusText, this.labelSpacing);
@@ -1093,9 +1629,24 @@ export class LumiCatchManager extends BaseScriptComponent {
           else press = 1 - this.pressT / 0.25;
         }
         const t = this.startButton.getTransform();
-        const w = 20 - press * 2.5;   // squashes in when pressed
-        t.setLocalPosition(new vec3(0, 2, -this.hudDistanceCm));
-        t.setLocalScale(new vec3(w, 7 - press * 0.8, 1.2));
+        const w = 13 - press * 2.0;   // squashes in when pressed
+        // At the end of a round this same collider becomes RESTART, centred
+        // under the GAME OVER banner. It MUST read the same x and y the art
+        // reads, which is why both take them from here.
+        const atX = this.roundOver ? 0 : -this.buttonSpreadCm;
+        const atY = this.roundOver ? this.uiRestartYCm : this.uiButtonYCm;
+        t.setLocalPosition(new vec3(atX, atY, -this.hudDistanceCm));
+        // RESTART art is 3:2 and taller than the 2:1 pills, so the hit volume
+        // grows with it. A collider that stays button-sized under a larger
+        // image is the same class of bug as one that stays put under a moved
+        // image: you can see the target and miss it.
+        const hitH = this.roundOver ? this.uiRestartHeightCm : 7;
+        const hitW = this.roundOver
+          ? this.uiRestartHeightCm * this.uiArt32Aspect
+          : w;
+        t.setLocalScale(
+          new vec3(hitW, hitH - press * 0.8, 1.2)
+        );
         t.setLocalRotation(quat.quatIdentity());
 
         // The box mesh is the hit volume only. What you see is the label's
@@ -1106,14 +1657,17 @@ export class LumiCatchManager extends BaseScriptComponent {
     }
 
     if (this.startButtonText) {
-      this.startButtonText.getSceneObject().enabled = showing && !counting;
-      if (showing && !counting) {
+      this.startButtonText.getSceneObject().enabled =
+        showing && !counting && !artOn;
+      if (showing && !counting && !artOn) {
         const t = this.startButtonText.getSceneObject().getTransform();
-        t.setLocalPosition(new vec3(0, 2, -this.hudDistanceCm + 2));
-        t.setLocalScale(new vec3(0.8, 0.8, 0.8));
+        t.setLocalPosition(
+          new vec3(-this.buttonSpreadCm, this.uiButtonYCm, -this.hudDistanceCm + 2)
+        );
+        t.setLocalScale(new vec3(0.66, 0.66, 0.66));
         this.startButtonText.text = this.roundOver
-          ? 'PLAY AGAIN'
-          : this.startButtonLabel;
+          ? this.soloButtonLabel
+          : this.soloButtonLabel;
         this.tracked(this.startButtonText, this.labelSpacing);
         // Dark type on a bright panel. The one place in the interface where
         // the contrast runs that way round, which is what marks it out as the
@@ -1129,6 +1683,305 @@ export class LumiCatchManager extends BaseScriptComponent {
             Math.min(1, COL_DRIFTER.r * glow + press * 0.4),
             Math.min(1, COL_DRIFTER.g * glow),
             Math.min(1, COL_DRIFTER.b * glow),
+            1
+          ),
+          Math.min(1, 0.88 + press * 0.12),
+          this.plateRadius * 1.6,
+          this.plateMargin * 1.8
+        );
+      }
+    }
+
+    this.updateSharedButton(showing, counting, dt);
+    this.updateArt(showing, counting);
+  }
+
+
+
+
+  /**
+   * Give the end of round quads their own materials.
+   *
+   * Called once. Both start life pointing at the shared wordmark material, so
+   * without this they would both draw the NEON-NET artwork, and setting the
+   * texture on one would change the other.
+   */
+  private setupEndArt() {
+    // Says what it found, because every step of this fails silently: an
+    // unwired input, a quad with no visual, a missing texture. Without the
+    // line you only discover it sixty seconds into a round.
+    print(
+      'LumiCatch: end of round art' +
+      ' banner=' + (this.uiGameOver ? 'yes' : 'MISSING') +
+      ' bannerTex=' + (this.gameOverTex ? 'yes' : 'MISSING') +
+      ' restart=' + (this.uiRestart ? 'yes' : 'MISSING') +
+      ' restartTex=' + (this.restartTex ? 'yes' : 'MISSING')
+    );
+    this.skinArt(this.uiGameOver, this.gameOverTex);
+    this.skinArt(this.uiRestart, this.restartTex);
+  }
+
+  private skinArt(o: SceneObject, tex: Texture) {
+    if (!o || !tex) return;
+    const vis = this.findVisual(o);
+    if (!vis || !vis.mainMaterial) return;
+    const m = vis.mainMaterial.clone();
+    m.mainPass.baseTex = tex;
+    vis.mainMaterial = m;
+    // Off until the round ends. A quad left enabled at its default unit scale
+    // sits as a small bright rectangle in the middle of the start screen.
+    o.enabled = false;
+  }
+
+  /** True when the painted start screen is wired up and should be used. */
+  private useArt(): boolean {
+    return !!(this.uiTitle && this.uiSolo && this.uiMulti);
+  }
+
+  /**
+   * Place one artwork quad.
+   *
+   * The plane preset is a unit quad, so a texture's aspect ratio has to be
+   * applied by hand or every image comes out square. Height is the tuning
+   * number and width follows from the art, which is why the buttons stay
+   * pill-shaped and the wordmark stays square.
+   */
+  private placeArt(o: SceneObject, y: number, heightCm: number,
+                   aspect: number, z: number) {
+    const t = o.getTransform();
+    t.setLocalPosition(new vec3(0, y, -this.hudDistanceCm + z));
+    t.setLocalRotation(quat.angleAxis(Math.PI / 2, new vec3(1, 0, 0)));
+    t.setLocalScale(new vec3(heightCm * aspect, 1, heightCm));
+  }
+
+  /**
+   * Draw one painted button, with its press feedback.
+   *
+   * Squash on contact and a flare of brightness, both driven from the same
+   * decaying value so they land together. A slow breath while idle, so the
+   * pair look alive rather than printed on the view.
+   */
+  private paintButton(o: SceneObject, x: number, on: boolean,
+                      aspect: number, press: number) {
+    if (!o) return;
+    o.enabled = on;
+    if (!on) return;
+
+    const breath =
+      1 + this.uiIdleBreath * Math.sin(this.elapsed * 1.8 + (x > 0 ? 1.4 : 0));
+    const squash = 1 - this.uiPressSquash * press;
+    const h = this.uiButtonHeightCm * breath * squash;
+
+    const t = o.getTransform();
+    t.setLocalPosition(
+      new vec3(x, this.uiButtonYCm, -this.hudDistanceCm + 2)
+    );
+    t.setLocalRotation(quat.angleAxis(Math.PI / 2, new vec3(1, 0, 0)));
+    // Wider as it squashes, the way a real button deforms rather than just
+    // getting smaller.
+    t.setLocalScale(
+      new vec3(h * aspect * (1 + this.uiPressSquash * press * 0.6), 1, h)
+    );
+
+    const vis = this.findVisual(o);
+    if (vis && vis.mainMaterial) {
+      const k = 1 + this.uiPressFlare * press;
+      vis.mainMaterial.mainPass.baseColor = new vec4(k, k, k, 1);
+    }
+  }
+
+  /**
+   * Draw one painted control at an arbitrary place and size.
+   *
+   * The same squash, flare and breath as paintButton, but with position and
+   * height passed in rather than taken from the two button inputs. Left as a
+   * separate function rather than folded into paintButton, because that one
+   * works and is on the filming path.
+   */
+  private paintArt(o: SceneObject, x: number, y: number, on: boolean,
+                   heightCm: number, aspect: number, press: number) {
+    if (!o) return;
+    o.enabled = on;
+    if (!on) return;
+
+    const breath = 1 + this.uiIdleBreath * Math.sin(this.elapsed * 1.8);
+    const squash = 1 - this.uiPressSquash * press;
+    const h = heightCm * breath * squash;
+
+    const t = o.getTransform();
+    t.setLocalPosition(new vec3(x, y, -this.hudDistanceCm + 2));
+    t.setLocalRotation(quat.angleAxis(Math.PI / 2, new vec3(1, 0, 0)));
+    t.setLocalScale(
+      new vec3(h * aspect * (1 + this.uiPressSquash * press * 0.6), 1, h)
+    );
+
+    const vis = this.findVisual(o);
+    if (vis && vis.mainMaterial) {
+      const k = 1 + this.uiPressFlare * press;
+      vis.mainMaterial.mainPass.baseColor = new vec4(k, k, k, 1);
+    }
+  }
+
+  /**
+   * The painted start screen: wordmark, two buttons, countdown digits.
+   *
+   * Runs instead of the typographic one when the art is wired up. The buttons
+   * keep their invisible box colliders exactly where they were, so the art is
+   * only a skin: the thing you actually press is unchanged and still real SIK
+   * hit targeting.
+   */
+  private updateArt(showing: boolean, counting: boolean) {
+    if (!this.useArt()) return;
+
+    if (this.uiTitle) {
+      this.uiTitle.enabled = showing && !counting && !this.roundOver;
+      if (this.uiTitle.enabled) {
+        this.placeArt(this.uiTitle, this.uiTitleYCm, this.uiTitleHeightCm,
+                      1.0, 0);
+      }
+    }
+
+    // 1774 x 887 art, so exactly 2:1.
+    //
+    // pressT is driven by the collider objects, which stay enabled and keep
+    // doing the real hit testing. The art is a skin over them, so the press
+    // animation has to be applied here or pressing would look like nothing
+    // happened at all.
+    const pressNow =
+      this.pressT >= 0 ? 1 - Math.min(1, this.pressT / 0.25) : 0;
+    const pill = 2.0;
+    // At the end of a round the mode has already been chosen: you are playing
+    // again, not picking a game. So SOLO and MULTIPLAYER give way to a single
+    // RESTART, and the choice is only offered again on a fresh start.
+    const picking = showing && !counting && !this.roundOver;
+    this.paintButton(
+      this.uiSolo, -this.buttonSpreadCm, picking, pill,
+      this.sharedMode ? 0 : pressNow
+    );
+    this.paintButton(
+      this.uiMulti, this.buttonSpreadCm, picking, pill,
+      this.sharedMode ? pressNow : 0
+    );
+
+    // ---- End of round ----
+    const ending = showing && !counting && this.roundOver;
+    if (this.uiGameOver) {
+      this.uiGameOver.enabled = ending;
+      if (ending) {
+        // A slow swell rather than a static card, so the screen does not look
+        // frozen while the player reads their score.
+        const swell = 1 + 0.025 * Math.sin(this.elapsed * 1.5);
+        this.placeArt(
+          this.uiGameOver,
+          this.uiGameOverYCm,
+          this.uiGameOverHeightCm * swell,
+          this.uiArt32Aspect,
+          0
+        );
+      }
+    }
+    if (this.uiRestart) {
+      // Painted at uiRestartYCm, which is also where the collider is moved to.
+      // Both read the same input: see the note on uiButtonYCm for what happens
+      // when a hit volume and its artwork are positioned separately.
+      this.paintArt(
+        this.uiRestart, 0, this.uiRestartYCm, ending,
+        this.uiRestartHeightCm, this.uiArt32Aspect, pressNow
+      );
+    }
+
+    if (this.uiCount) {
+      // 3, 2, 1 and then GO. The GO frame is held for the last moment of the
+      // countdown rather than being skipped, because the round starting is the
+      // beat the whole screen has been building to.
+      const n = counting ? Math.ceil(this.countdownLeft) : 0;
+      const go = counting && this.countdownLeft <= this.goHoldS;
+      this.uiCount.enabled = counting && (go || (n >= 1 && n <= 3));
+      if (this.uiCount.enabled) {
+        const tex = go
+          ? this.countTexGo
+          : n === 1 ? this.countTex1
+          : n === 2 ? this.countTex2
+          : this.countTex3;
+        const vis = this.findVisual(this.uiCount);
+        if (vis && tex && vis.mainMaterial) {
+          vis.mainMaterial.mainPass.baseTex = tex;
+        }
+        // A kick as each number lands, largest as it appears and settling as
+        // it holds. GO gets a bigger one, and grows as it goes.
+        const frac = this.countdownLeft - Math.floor(this.countdownLeft);
+        const kick = go
+          ? 1.15 + 0.35 * (1 - this.countdownLeft / Math.max(0.01, this.goHoldS))
+          : 1.0 + 0.18 * frac * frac;
+        this.placeArt(
+          this.uiCount, 2, this.uiCountHeightCm * kick,
+          go ? this.uiGoAspect : 1.0, 4
+        );
+      }
+    }
+  }
+
+  /**
+   * The second button, mirrored on the right.
+   *
+   * Same shape and same treatment as the first, because they are two of the
+   * same thing: a choice of game, not a primary and a secondary action. The
+   * only difference is that this one is greyed and refuses the press while the
+   * board is not reachable, since a shared game without a board is nothing.
+   */
+  private updateSharedButton(showing: boolean, counting: boolean, dt: number) {
+    const live = this.connected;
+
+    if (this.sharedButton) {
+      // Off at the end of a round. There is one button on that screen and it
+      // is RESTART; leaving this collider live would put an invisible hit
+      // target to the right of it that silently switches you to shared play.
+      this.sharedButton.enabled = showing && !counting && !this.roundOver;
+      if (this.sharedButton.enabled) {
+        let press = 0;
+        if (this.pressT >= 0 && this.sharedMode) {
+          press = 1 - Math.min(1, this.pressT / 0.25);
+        }
+        const t = this.sharedButton.getTransform();
+        const w = 13 - press * 2.0;
+        t.setLocalPosition(
+          new vec3(this.buttonSpreadCm, this.uiButtonYCm, -this.hudDistanceCm)
+        );
+        t.setLocalScale(new vec3(w, 7 - press * 0.8, 1.2));
+        t.setLocalRotation(quat.quatIdentity());
+        const visual = this.findVisual(this.sharedButton);
+        if (visual) visual.enabled = false;
+      }
+    }
+
+    if (this.sharedButtonText) {
+      const o = this.sharedButtonText.getSceneObject();
+      o.enabled = showing && !counting && !this.useArt();
+      if (o.enabled) {
+        const t = o.getTransform();
+        t.setLocalPosition(
+          new vec3(this.buttonSpreadCm, this.uiButtonYCm, -this.hudDistanceCm + 2)
+        );
+        t.setLocalScale(new vec3(0.66, 0.66, 0.66));
+        this.sharedButtonText.text = this.sharedButtonLabel;
+        this.tracked(this.sharedButtonText, this.labelSpacing);
+        this.sharedButtonText.textFill.color = live
+          ? new vec4(0.02, 0.06, 0.08, 1)
+          : new vec4(0.35, 0.45, 0.5, 1);
+
+        let press = 0;
+        if (this.pressT >= 0 && this.sharedMode) {
+          press = 1 - Math.min(1, this.pressT / 0.25);
+        }
+        const glow = live
+          ? 0.62 + 0.12 * Math.sin(this.elapsed * 1.8) + press * 0.38
+          : 0.22;
+        this.plate(
+          this.sharedButtonText,
+          new vec4(
+            Math.min(1, COL_SKITTISH.r * glow + press * 0.4),
+            Math.min(1, COL_SKITTISH.g * glow),
+            Math.min(1, COL_SKITTISH.b * glow),
             1
           ),
           Math.min(1, 0.88 + press * 0.12),
@@ -1253,35 +2106,49 @@ export class LumiCatchManager extends BaseScriptComponent {
     // ---- what you just caught, large, centre, fades upward ----
     if (this.catchPopupText) {
       const o = this.catchPopupText.getSceneObject();
+      // A miss clears faster and sits lower. It has to be unmissable without
+      // becoming the thing you are looking at.
+      const life = this.catchIsMiss ? 0.85 : 1.3;
       let k = 0;
       let rise = 0;
       if (this.catchPopT >= 0) {
         this.catchPopT += dt;
-        if (this.catchPopT >= 1.3) this.catchPopT = -1;
+        if (this.catchPopT >= life) this.catchPopT = -1;
         else {
-          const p = this.catchPopT / 1.3;
+          const p = this.catchPopT / life;
           k = p < 0.1 ? p / 0.1 : 1 - (p - 0.1) / 0.9;
-          rise = p * 6;
+          rise = p * (this.catchIsMiss ? -3 : 6);
         }
       }
       o.enabled = showGame && k > 0.01;
       if (o.enabled) {
         const t = o.getTransform();
         t.setLocalPosition(new vec3(0, 6 + rise, -this.hudDistanceCm));
-        t.setLocalScale(new vec3(1.15, 1.15, 1.15));
+        const s = this.catchIsMiss ? 0.9 : 1.15;
+        t.setLocalScale(new vec3(s, s, s));
         this.catchPopupText.text = this.catchLabel;
-        const gold = this.catchLabel.indexOf('RARE') >= 0
-                  || this.catchLabel.indexOf('COMBO') >= 0;
-        const c = gold ? COL_LUMEN : COL_DRIFTER;
-        this.catchPopupText.textFill.color = new vec4(c.r, c.g, c.b, k);
+        // Colour by what actually happened rather than by reading the label
+        // back, which is how a creature called RARE and a chain called COMBO
+        // ended up sharing a branch.
+        // Coloured from the kind that was actually caught, not by searching
+        // the label text. String matching is how 'LUMEN' and 'RARE' ended up
+        // having to mean the same thing.
+        let c = COL_DRIFTER;
+        if (this.catchIsMiss) c = COL_MISS;
+        else if (this.catchKind >= 0) c = colourFor(this.catchKind);
+        else if (this.catchLabel.indexOf('BLOOM') >= 0) c = COL_LUMEN;
+        // Misses are dimmed as well as desaturated: on an additive display
+        // alpha alone is not enough to make something recede.
+        const a = this.catchIsMiss ? k * 0.75 : k;
+        this.catchPopupText.textFill.color = new vec4(c.r, c.g, c.b, a);
       }
     }
 
-    // The separate alertness label is gone: it is the percentage in the shoal
-    // chip above. It was unreadable anyway, at 0.42 scale and 0.75 alpha, a
-    // small dim line competing with everything else. The input is kept so the
-    // object can be given a job later rather than being deleted from a scene
-    // that is about to be filmed.
+    // This object is spare. It has carried an alertness percentage and then a
+    // catch list, and lost both: the percentage moved into the shoal chip, and
+    // the catch list was cut because turning the round into a checklist
+    // changed what the game is. Kept in the scene, disabled, so it is there if
+    // a readout is wanted later.
     if (this.difficultyLabelText) {
       this.difficultyLabelText.getSceneObject().enabled = false;
     }
@@ -1526,7 +2393,7 @@ export class LumiCatchManager extends BaseScriptComponent {
    * rather than a shoal. Harmless when the prefab has no animation at all,
    * which is how the old sphere prefab behaved.
    */
-  private desyncAnimation(obj: SceneObject) {
+  private desyncAnimation(obj: SceneObject, clipSeconds: number) {
     const player = this.findAnimation(obj);
     if (!player) {
       if (!this.animWarned) {
@@ -1568,9 +2435,12 @@ export class LumiCatchManager extends BaseScriptComponent {
     // The player therefore loops a 137 millisecond sliver of the swim cycle,
     // which holds the creature very nearly still. That is why the jellyfish
     // looked static while every other check said the animation was fine.
-    if (this.swimClipSeconds > 0) {
+    // The Spotted-Jelly model has the same problem with a different number:
+    // its clip is 16.667 s, so a naive import reads 0.5556. Each model's true
+    // length is passed in rather than assumed.
+    if (clipSeconds > 0) {
       clip.begin = 0;
-      clip.end = this.swimClipSeconds;
+      clip.end = clipSeconds;
     }
     clip.playbackMode = PlaybackMode.Loop;
     if (this.swimSpeed > 0) clip.playbackSpeed = this.swimSpeed;
@@ -1747,12 +2617,7 @@ export class LumiCatchManager extends BaseScriptComponent {
       const base = this.neonMaterial || visual.mainMaterial;
       if (!base) return;
       const cloned = base.clone();
-      cloned.mainPass.baseColor =
-        kind === KIND_LUMEN
-          ? COL_LUMEN
-          : kind === KIND_SKITTISH
-          ? COL_SKITTISH
-          : COL_DRIFTER;
+      cloned.mainPass.baseColor = colourFor(kind);
       // A sphere never showed you its inside, so backface culling was free. A
       // bell does: swim under one with culling on and the jellyfish vanishes.
       // The source model is doubleSided for exactly this reason.
@@ -1761,11 +2626,105 @@ export class LumiCatchManager extends BaseScriptComponent {
       // behind it blend into each other instead of the nearest surface
       // painting a flat silhouette over everything behind it.
       cloned.mainPass.blendMode = BlendMode.Normal;
-      cloned.mainPass.depthWrite = false;
+      // Translucent and not writing depth, so a bell and the tentacles behind
+      // it blend together instead of the nearest surface painting a flat
+      // silhouette over everything behind it.
+      //
+      // EXCEPT the Abyssal. Its model is far denser geometry than the common
+      // jellyfish, so without depth write a great many translucent layers
+      // stack in the same pixels and the colour saturates towards white in the
+      // thickest parts. That is the white patching: not a tinting failure,
+      // which the log confirms (one visual, one slot, all of it painted), but
+      // blend accumulation. Writing depth lets the nearest layer win and the
+      // creature reads as solid neon rose.
+      cloned.mainPass.depthWrite =
+        kind === KIND_ABYSSAL ? this.superDepthWrite : false;
       this.kindMaterials[kind] = cloned;
     }
 
-    visual.mainMaterial = this.kindMaterials[kind];
+    const m = this.kindMaterials[kind];
+    visual.mainMaterial = m;
+    // EVERY material slot, and every visual in the tree, not just the first.
+    //
+    // mainMaterial is slot 0 alone. The Abyssal's model is a single mesh split
+    // into FIVE primitives with five materials, so tinting slot 0 left four
+    // fifths of the creature wearing its original spotted texture: pink on one
+    // patch, photographic everywhere else. A model with one slot is unaffected
+    // by this, which is why it went unnoticed on the common jellyfish.
+    this.paintAll(obj, m, kind);
+  }
+
+  /**
+   * Force one material onto every slot of every visual under an object.
+   *
+   * Counts what it touched and, the first time, says so. Three separate times
+   * on this project a fix looked correct in code and wrong on the display, so
+   * this one reports the numbers: if the Abyssal still shows its original
+   * texture, the log says whether the slots were found and how many.
+   */
+  private paintAll(obj: SceneObject, m: Material, kind: number) {
+    // The Abyssal's model needs every one of its five sub-mesh slots written,
+    // and the visual under-reports how many it has.
+    const minSlots = kind === KIND_ABYSSAL ? this.superMaterialSlots : 0;
+    const seen = this.paintInto(obj, m, 0, 0, minSlots);
+    // Once PER KIND. Reporting only once told us about the first creature
+    // spawned, which is a common drifter with a single slot, and said nothing
+    // at all about the Abyssal, which is the one with five.
+    if (kind === KIND_ABYSSAL && !this.paintReported[kind]) {
+      this.paintReported[kind] = true;
+      print(
+        'LumiCatch: tint ' + nameFor(kind) + ' painted ' + seen[1] +
+        ' material slots across ' + seen[0] + ' visuals (asked for ' +
+        minSlots + ')'
+      );
+    }
+  }
+
+  /** Returns [visuals touched, slots written]. */
+  private paintInto(obj: SceneObject, m: Material,
+                    visuals: number, slots: number,
+                    minSlots: number): number[] {
+    const vis = obj.getComponent('Component.RenderMeshVisual');
+    if (vis) {
+      visuals++;
+      // mainMaterial is slot 0 only. A glTF mesh split into several primitives
+      // arrives as several slots, and leaving the rest alone is what left four
+      // fifths of the Abyssal wearing its original spotted texture.
+      const existing = vis.materials;
+      const have = existing ? existing.length : 0;
+      // Write at least minSlots entries, whatever the array currently reports.
+      //
+      // Spotted-Jelly's mesh is five sub-meshes with five materials, but the
+      // visual reports ONE slot. Writing that one slot tinted a fifth of the
+      // creature and left the rest on the model's own plain grey, which is the
+      // white patching. Asking for five regardless is the only thing that
+      // reaches them; the mesh's own sub-mesh count is not exposed here.
+      const want = Math.max(have, minSlots);
+      if (want > 1) {
+        const next = [];
+        for (let i = 0; i < want; i++) next.push(m);
+        try {
+          vis.materials = next;
+        } catch (e) {
+          // Fall back rather than lose the creature entirely.
+          vis.mainMaterial = m;
+        }
+        slots += want;
+      } else {
+        vis.mainMaterial = m;
+        slots += 1;
+      }
+      // mainMaterial as well, belt and braces: on some versions slot 0 and
+      // mainMaterial are not the same handle.
+      vis.mainMaterial = m;
+    }
+    const n = obj.getChildrenCount();
+    for (let i = 0; i < n; i++) {
+      const r = this.paintInto(obj.getChild(i), m, visuals, slots, minSlots);
+      visuals = r[0];
+      slots = r[1];
+    }
+    return [visuals, slots];
   }
 
   /** Move from 'from' towards 'to' by at most maxStep centimetres. */
@@ -1777,6 +2736,7 @@ export class LumiCatchManager extends BaseScriptComponent {
   }
 
   private pointsFor(kind: number): number {
+    if (kind === KIND_ABYSSAL) return this.superRarePoints;
     return kind === KIND_LUMEN ? 3 : 1;
   }
 
@@ -1811,7 +2771,11 @@ export class LumiCatchManager extends BaseScriptComponent {
       const t = e.obj.getTransform();
       // Accelerating in, so it reads as being scooped rather than drifting.
       t.setWorldPosition(vec3.lerp(e.from, target, p * p));
-      const s = e.scale * (1 - p);
+      // Shrink faster than it travels, so it is already small by the time it
+      // is close. Linear scaling kept it big for most of the flight, which is
+      // the other half of why the old version flashed.
+      const shrink = (1 - p) * (1 - p);
+      const s = e.scale * shrink;
       t.setWorldScale(new vec3(s, s, s));
       if (p >= 1) {
         e.obj.destroy();
@@ -1847,24 +2811,85 @@ export class LumiCatchManager extends BaseScriptComponent {
   // ---------------- Spawning ----------------
 
   private pickKind(): number {
+    if (Math.random() < this.superRareChance) return KIND_ABYSSAL;
     const r = Math.random();
     if (r < this.rareChance) return KIND_LUMEN;
     if (r < this.rareChance + this.skittishChance) return KIND_SKITTISH;
     return KIND_DRIFTER;
   }
 
+  /**
+   * Which model a kind uses.
+   *
+   * The Abyssal gets its own model when one is wired, then the rare model,
+   * then the common one. Checked most specific first so a scene with only some
+   * of the three still spawns everything.
+   *
+   * One function rather than the choice written inline where it is needed.
+   * Position written in two places is what made the buttons untappable; this
+   * is the same trap with a different variable.
+   */
+  private prefabFor(kind: number): ObjectPrefab {
+    if (kind === KIND_ABYSSAL && this.superPrefab) return this.superPrefab;
+    if (cloaksWhenHard(kind) && this.rarePrefab) return this.rarePrefab;
+    return this.creaturePrefab;
+  }
+
+  /**
+   * The true clip length for a model, in seconds.
+   *
+   * Each model carries its own. Getting this wrong does not error, it just
+   * freezes the creature, which is exactly how the common jellyfish shipped
+   * static for a day.
+   */
+  /**
+   * How much bigger than the base scale a kind should be drawn.
+   *
+   * Two separate factors, and conflating them is what hid the bug below:
+   *
+   *   RARITY  - a design choice. Rare creatures are drawn larger so they read
+   *             as a prize across a room.
+   *   MODEL   - a correction, not a choice. The two glTF models do not agree
+   *             on units. simple_jellyfish carries a 100x scale on its mesh
+   *             node; Spotted-Jelly carries 1x. Measured from the files, the
+   *             same scale value renders Spotted-Jelly 106 times smaller: a
+   *             20 cm creature came out about 2 mm, which is why the Abyssal
+   *             was invisible both in play and in the start screen row.
+   *
+   * Kept as one function so the two factors stay separable.
+   */
+  private sizeMultFor(kind: number): number {
+    const rarity =
+      kind === KIND_ABYSSAL
+        ? this.superRareScaleMult
+        : kind === KIND_LUMEN
+        ? this.rareScaleMult
+        : 1.0;
+    return rarity * this.modelMultFor(kind);
+  }
+
+  /** The unit correction alone, with no art decision in it. */
+  private modelMultFor(kind: number): number {
+    return this.prefabFor(kind) === this.superPrefab
+      ? this.superModelScaleMult
+      : 1.0;
+  }
+
+  private clipSecondsFor(prefab: ObjectPrefab): number {
+    return prefab === this.superPrefab
+      ? this.superSwimClipSeconds
+      : this.swimClipSeconds;
+  }
+
   /** forceKind of -1 means 'choose randomly'. */
   private spawnCreature(forceKind: number) {
     const kind = forceKind >= 0 ? forceKind : this.pickKind();
 
-    const prefab =
-      kind === KIND_LUMEN && this.rarePrefab
-        ? this.rarePrefab
-        : this.creaturePrefab;
+    const prefab = this.prefabFor(kind);
 
     const obj = prefab.instantiate(this.creatureRoot());
     this.tint(obj, kind);
-    this.desyncAnimation(obj);
+    this.desyncAnimation(obj, this.clipSecondsFor(prefab));
 
     const camT = this.camera.getTransform();
     const camPos = camT.getWorldPosition();
@@ -1886,13 +2911,13 @@ export class LumiCatchManager extends BaseScriptComponent {
             this.spawnMaxCm
           );
 
-    const scale =
-      this.creatureScale * (kind === KIND_LUMEN ? this.rareScaleMult : 1.0);
+    const scale = this.creatureScale * this.sizeMultFor(kind);
 
     obj.getTransform().setWorldPosition(home);
 
     this.creatures.push({
       obj: obj,
+      id: -1,
       school: school,
       kind: kind,
       state: ST_DRIFT,
@@ -1929,14 +2954,57 @@ export class LumiCatchManager extends BaseScriptComponent {
       this.setMood(MOOD_CALM, camPos);
     }
     this.updateSchools(dt, camPos);
+    this.sendPose(camPos, fwd);
 
     let nearestDist = Number.MAX_VALUE;
     let nearestKind = KIND_DRIFTER;
     let easyReady = false;
 
+    // In shared play the board is running all of this, and the Lens only
+    // renders. Easing towards the last broadcast position rather than snapping
+    // to it hides the fact that the board speaks 15 times a second while the
+    // display runs several times faster.
+    const shared = this.sharedActive();
+
+    // The board has gone quiet mid game. Drop its creatures and go back to
+    // simulating our own, rather than leaving a frozen shoal hanging in the
+    // room. A dropped connection should cost you the shared game, not the game.
+    if (this.sharedLive && !shared) {
+      this.sharedLive = false;
+      for (let i = this.creatures.length - 1; i >= 0; i--) {
+        this.creatures[i].obj.destroy();
+        this.creatures.splice(i, 1);
+      }
+      print('LumiCatch: lost the board, falling back to a local shoal');
+    }
+    if (!shared && this.creatures.length < this.creatureCount) {
+      this.spawnCreature(this.creatures.length === 0 ? KIND_DRIFTER : -1);
+    }
+
     for (let i = 0; i < this.creatures.length; i++) {
       const c = this.creatures[i];
       c.stateT += dt;
+
+      if (shared && c.id >= 0) {
+        c.pos = vec3.lerp(c.pos, c.home, Math.min(1, dt * 12));
+        const toRemote = c.pos.sub(camPos);
+        const dRemote = toRemote.length;
+        if (dRemote < nearestDist) {
+          nearestDist = dRemote;
+          nearestKind = c.kind;
+        }
+        if (
+          c.kind === KIND_DRIFTER &&
+          c.state === ST_DRIFT &&
+          dRemote <
+            (this.useSwingQuality ? this.sneakRangeCm : this.captureRangeCm) &&
+          (dRemote > 0.0001 ? toRemote.normalize().dot(fwd) : 1) >=
+            this.captureConeDot
+        ) {
+          easyReady = true;
+        }
+        continue;
+      }
 
       const toC = c.pos.sub(camPos);
       const dist = toC.length;
@@ -2094,6 +3162,33 @@ export class LumiCatchManager extends BaseScriptComponent {
       }
     }
 
+    // Personal space, applied last so it wins over every rule above. A
+    // creature inside the bubble is eased outward along the line from your
+    // head rather than teleported: a snap would read as a rendering glitch,
+    // and on an additive display a creature that close washes out the whole
+    // field of view in its own colour.
+    //
+    // A fleeing creature is exempt. Its whole job is to get away from you, and
+    // its path legitimately starts close.
+    if (this.personalSpaceCm > 0) {
+      const ease = Math.min(1, dt * this.personalSpaceEaseRate);
+      for (let i = 0; i < this.creatures.length; i++) {
+        const c = this.creatures[i];
+        if (c.state === ST_FLEE) continue;
+        const away = c.pos.sub(camPos);
+        const d = away.length;
+        if (d >= this.personalSpaceCm) continue;
+        // Straight up if it is somehow exactly on the camera, so normalize
+        // never divides by zero.
+        const dir = d > 0.0001 ? away.normalize() : new vec3(0, 1, 0);
+        const wanted = camPos.add(dir.uniformScale(this.personalSpaceCm));
+        c.pos = vec3.lerp(c.pos, wanted, ease);
+        // Re-home it as well, or it swims straight back into your face on the
+        // next frame and the clamp fights the drift forever.
+        if (c.home.distance(camPos) < this.personalSpaceCm) c.home = wanted;
+      }
+    }
+
     // Apply transforms once positions have settled. Yaw spin plus bell pulse,
     // no billboarding: a wrong facing axis is invisible in the editor and
     // obvious on video.
@@ -2119,7 +3214,8 @@ export class LumiCatchManager extends BaseScriptComponent {
       const t = c.obj.getTransform();
       t.setWorldPosition(c.pos);
 
-      const pulseSpeed = c.kind === KIND_LUMEN ? 1.4 : 2.2;
+      const pulseSpeed =
+        c.kind === KIND_ABYSSAL ? 1.1 : c.kind === KIND_LUMEN ? 1.4 : 2.2;
       const s =
         c.scale *
         (1 + Math.sin(this.elapsed * pulseSpeed + c.seed) * this.pulseAmount);
@@ -2201,7 +3297,7 @@ export class LumiCatchManager extends BaseScriptComponent {
       this.nearbyActive = true;
       if (this.elapsed - this.lastNearbyPing > this.nearbyCooldownS) {
         this.lastNearbyPing = this.elapsed;
-        this.sendHaptic(nearestKind === KIND_LUMEN ? 2 : 1);
+        this.sendHaptic(cloaksWhenHard(nearestKind) ? 2 : 1);
       }
     } else if (this.nearbyActive && nearestDist > this.nearbyRangeCm * 1.25) {
       this.nearbyActive = false;
@@ -2222,7 +3318,8 @@ export class LumiCatchManager extends BaseScriptComponent {
   ): vec3 {
     // Dodge towards the centre of frame, not out of it.
     const side = c.pos.sub(camPos).dot(rightV) > 0 ? -1 : 1;
-    const boost = c.kind === KIND_LUMEN ? 1.25 : 1.0;
+    const boost =
+      c.kind === KIND_ABYSSAL ? 1.5 : c.kind === KIND_LUMEN ? 1.25 : 1.0;
 
     const fleeDir = rightV
       .uniformScale(side * 0.85)
@@ -2291,22 +3388,68 @@ export class LumiCatchManager extends BaseScriptComponent {
     let bestIdx = -1;
     let bestDist = Number.MAX_VALUE;
 
+    // Why a swing missed, worked out while we are already walking the roster.
+    // Without this every miss looks identical to the player and the game feels
+    // arbitrary: 'it dodged you' and 'you swung at nothing' are completely
+    // different mistakes and want completely different corrections.
+    let sawDodged = false;   // something in reach, but awake
+    let sawOffAim = false;   // something in reach, but not in the cone
+    let sawShort = false;    // something in the cone, but too far away
+
     for (let i = 0; i < this.creatures.length; i++) {
+      const c = this.creatures[i];
+      const toC = c.pos.sub(camPos);
+      const dist = toC.length;
+      if (dist < 0.0001) continue;
+      const aimed = toC.normalize().dot(fwd) >= this.captureConeDot;
+
       // A creature that is actively dodging has evaded you. Without this the
       // flee is cosmetic: fleeDistanceCm is 32 while the reach is far longer,
       // so a dodged creature stays well inside it and you catch it anyway.
-      const st = this.creatures[i].state;
-      if (st === ST_ALERT || st === ST_FLEE) continue;
+      const st = c.state;
+      if (st === ST_ALERT || st === ST_FLEE) {
+        if (dist <= reach && aimed) sawDodged = true;
+        continue;
+      }
 
-      const toC = this.creatures[i].pos.sub(camPos);
-      const dist = toC.length;
-      if (dist > reach) continue;
-      if (dist < 0.0001) continue;
-      if (toC.normalize().dot(fwd) < this.captureConeDot) continue;
+      if (dist > reach) {
+        // Only counts as 'short' if you were actually pointing at it, and only
+        // within reasonable overshoot: everything in the room is further away
+        // than the reach, so without the bound this fires on every miss.
+        if (aimed && dist <= reach * 1.8) sawShort = true;
+        continue;
+      }
+      if (!aimed) {
+        sawOffAim = true;
+        continue;
+      }
       if (dist < bestDist) {
         bestDist = dist;
         bestIdx = i;
       }
+    }
+
+    // Most specific reason first. Being dodged is the one worth learning from,
+    // so it outranks the others even when several are true at once.
+    this.missReason = sawDodged
+      ? 'IT DODGED'
+      : sawOffAim
+      ? 'OFF TARGET'
+      : sawShort
+      ? 'TOO FAR'
+      : 'NOTHING THERE';
+
+    if (bestIdx >= 0 && this.sharedActive() &&
+        this.creatures[bestIdx].id >= 0) {
+      // The board owns this shoal, so we do not catch anything ourselves. We
+      // ask. If another player got there first the answer is no, and onTaken
+      // does the scoring when the answer is yes.
+      this.consecutiveMisses = 0;
+      this.sendClaim(this.creatures[bestIdx].id);
+      if (this.useSwingQuality) {
+        this.disturb(camPos, gentle ? this.sneakSpookCm : this.lungeSpookCm);
+      }
+      return;
     }
 
     this.sendResult(bestIdx >= 0);
@@ -2316,9 +3459,12 @@ export class LumiCatchManager extends BaseScriptComponent {
       this.capture(bestIdx, gentle);
     } else {
       this.consecutiveMisses++;
+      this.showMiss();
       print(
         'LumiCatch: swing missed (peak ' +
           peak +
+          ', ' +
+          this.missReason +
           ', misses ' +
           this.consecutiveMisses +
           ')'
@@ -2339,6 +3485,21 @@ export class LumiCatchManager extends BaseScriptComponent {
     if (this.useSwingQuality) {
       this.disturb(camPos, gentle ? this.sneakSpookCm : this.lungeSpookCm);
     }
+  }
+
+  /**
+   * Tell the player the swing missed, and why.
+   *
+   * Deliberately quieter than a catch: shorter on screen, no haptic, and a
+   * desaturated colour rather than a creature colour. A miss should register
+   * without competing with the thing you are trying to see.
+   */
+  private showMiss() {
+    this.catchLabel = 'MISSED\n' + this.missReason;
+    this.catchIsMiss = true;
+    this.catchKind = -1;
+    this.catchPopT = 0;
+    this.playMiss();
   }
 
   /**
@@ -2366,7 +3527,7 @@ export class LumiCatchManager extends BaseScriptComponent {
     }
   }
 
-  private capture(idx: number, gentle: boolean) {
+  private capture(idx: number, gentle: boolean, pointsOverride: number = -1) {
     const c = this.creatures[idx];
     const pos = c.pos;
     const kind = c.kind;
@@ -2383,6 +3544,16 @@ export class LumiCatchManager extends BaseScriptComponent {
       // Move the emitter to where the creature was, so the spatialised chime
       // comes from the right direction.
       this.captureSound.getSceneObject().getTransform().setWorldPosition(pos);
+      // A chime per kind, so what you caught is audible before you have read
+      // anything. All three stay on this emitter, so all three keep their
+      // direction: a rare caught on your left still rings on your left.
+      const track =
+        kind === KIND_ABYSSAL && this.superTrack
+          ? this.superTrack
+          : kind === KIND_LUMEN && this.rareTrack
+          ? this.rareTrack
+          : this.captureTrack;
+      if (track) this.captureSound.audioTrack = track;
       this.captureSound.play(1);
     }
 
@@ -2409,20 +3580,25 @@ export class LumiCatchManager extends BaseScriptComponent {
     const chain = Math.min(this.comboCount, this.comboMax);
     const bloom = this.bloomActive ? this.bloomMultiplier : 1;
     const mult = chain * bloom;
-    const pts = this.pointsFor(kind) * mult;
+    // In shared play the board decides what a creature was worth, so its
+    // figure wins. Chain and bloom are local flourishes on top of it.
+    const base = pointsOverride >= 0 ? pointsOverride : this.pointsFor(kind);
+    const pts = base * mult;
 
     // Tell the player what they just caught and what it was worth, or the
     // score simply jumps by twelve with no explanation. Two short lines rather
     // than one long one, because the display is only 27 degrees wide.
-    let what = 'CAUGHT';
-    if (kind === KIND_LUMEN) what = 'RARE';
-    else if (kind === KIND_SKITTISH) what = 'SKITTISH';
-    const head = (gentle ? 'SNEAK  ' : 'LUNGE  ') + what;
+    // nameFor, so what the popup calls a creature is what the start screen
+    // legend called it. The gold one used to be 'RARE' here and 'LUMEN' there.
+    const head = (gentle ? 'SNEAK  ' : 'LUNGE  ') + nameFor(kind);
     const tail = (mult > 1 ? 'x' + mult + '   ' : '') + '+' + pts;
     this.catchLabel = head + '\n' + tail;
+    this.catchIsMiss = false;
+    this.catchKind = kind;
     this.catchPopT = 0;
     this.sendHaptic(mult > 1 ? 4 : 3);
     this.updateScore(this.score + pts);
+
 
     const respawn = this.createEvent('DelayedCallbackEvent');
     respawn.bind(() => this.spawnCreature(-1));

@@ -23,6 +23,7 @@ used to scoop fish out of a tank, and the AI runs on the net itself.
 - **The net answers back.** An ERM motor gives four distinguishable haptic patterns: something nearby, something rare, a catch, a chain.
 - **The creatures have opinions.** Two shoals group tight and back off when you land several catches quickly, and disperse and come closer when you keep missing.
 - **Two AI models run on the board**, not in the cloud, and both are visible on screen while you play.
+- **Two people can fish the same shoal.** In shared play the UNO Q stops being a sensor with AI attached and becomes the game server: it owns every creature, runs their behaviour, and rules on who caught what. Two players lunging at the same jellyfish cannot both score it.
 
 Nothing is sent to the internet. Everything runs on the board and the glasses
 over your local network.
@@ -75,6 +76,7 @@ The split is by latency budget, which is the only justification that matters.
   │   swing detection                     WebSocket server  :8765        │
   │   haptic pattern timing   ◄──RPC──►   game dashboard    :8080        │
   │                                       per-player sessions            │
+  │                                       the shared shoal (shoal.py)     │
   └─────────────────────────────────────────────┬───────────────────────┘
                                                 │  WebSocket, local network
                                                 ▼
@@ -88,6 +90,29 @@ timing vibration patterns. Everything that benefits from a real OS lives on the
 Linux side: the models, the network, the dashboard. `Arduino_RouterBridge`
 carries RPC between them.
 
+### Solo and shared play
+
+The start screen offers two games, and what runs where depends on which you pick.
+
+| | SOLO | SHARED |
+|---|---|---|
+| Creature positions and behaviour | Lens | **UNO Q** |
+| Who caught what | Lens | **UNO Q**, first claim wins |
+| Swing prediction, difficulty | UNO Q | UNO Q |
+| Rendering, HUD, haptics | Lens | Lens |
+
+In shared play the headsets render what they are told and *ask* to catch
+something: a Lens sends `claim` and the board grants it or refuses it. The board
+broadcasts the shoal at 15 Hz and each Lens reports its head pose at 10 Hz so
+creatures know when to bolt.
+
+**On colocation, honestly.** Two Spectacles do not share a coordinate origin.
+Each headset pins the board's room frame to wherever it stood when the round
+began, so two players who start from roughly the same spot facing the same way
+will agree about where the creatures are. What is exact is the **state**: the
+same creatures, the same ids, one ruling on each catch. True shared spatial
+anchors need Connected Lenses, which this deliberately does not use.
+
 ---
 
 ## Repository layout
@@ -97,8 +122,10 @@ carries RPC between them.
 | `sketch.ino` | MCU firmware. IMU sampling, swing detection, haptic patterns, watchdog |
 | `main-nodeps.py` | Linux side. WebSocket server, multiplayer sessions, AI glue |
 | `main-nodeps-standalone.py` | **The file to paste into App Lab.** Generated, single file, no imports |
-| `build-standalone.py` | Generates the above by inlining the two modules |
+| `build-standalone.py` | Generates the above by inlining the three modules |
 | `neon_ai.py` | Both AI models. No hardware imports, so it runs on a laptop |
+| `shoal.py` | The authoritative shared shoal, simulated on the board |
+| `test_shoal.py` | Tests for the shared shoal, including the multiplayer rules |
 | `dashboard.py` | The game dashboard served on port 8080 |
 | `test_neon_ai.py` | Tests for both models against synthetic IMU traces. `python3 test_neon_ai.py` |
 | `mock-net.py` | Stands in for the whole board so the Lens can be developed without hardware |
@@ -108,7 +135,8 @@ carries RPC between them.
 | `diagnostics/` | Standalone test sketches: IMU, motor, I2C scan |
 | `LumiCatch-Build-Guide.md` | The full build log, including everything that went wrong |
 | `BOM.md` | Bill of materials |
-| `wiring-diagram.svg` | Schematic |
+| `wiring-diagram.svg` | Circuit diagram |
+| `breadboard-view.svg` | Breadboard view: jumper colours and hole positions |
 
 ---
 
@@ -148,7 +176,19 @@ Each of these cost real hours. They are written up properly in the build guide.
 
 ---
 
-## Licence
+## Licence and attribution
 
-Code in this repository is available under the MIT licence. The jellyfish model
-is third-party; see [`BOM.md`](BOM.md) for its source and licence.
+Code in this repository is available under the MIT licence. All eight sound
+files are synthesised from scratch by [`make-audio.py`](make-audio.py) and are
+covered by it too.
+
+The two jellyfish models are third-party, both under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), which permits
+commercial use and derivatives on condition of attribution:
+
+- **'Simple Jellyfish'** by **RickStikkelorum** — [source](https://sketchfab.com/3d-models/simple-jellyfish-f77876d8297846eeb23c4ad82dbebb97), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- **'Simple Spotted Jellyfish (Baked Animation)'** by **n-** — [source](https://sketchfab.com/3d-models/simple-spotted-jellyfish-baked-animation-d5006697ad3c4bc1ac814110cde19af2), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+
+Neither model file has been altered. The Lens replaces their materials and
+adjusts scale and clip length at runtime; no geometry, rigging or animation
+data was edited. See [`BOM.md`](BOM.md) for the full note.

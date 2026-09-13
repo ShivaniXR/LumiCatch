@@ -1618,6 +1618,99 @@ multiplayer claim on screen. A browser window beside the first-person capture,
 difficulty visibly moving as you play, is a stronger evidence shot than any
 amount of narration.
 
+## Shared play: the board takes the world over
+
+Up to this point each pair of Spectacles simulated its own shoal, and the board
+predicted swings and set difficulty. That is a complete single player game and a
+non-existent multiplayer one: two headsets would run two unrelated shoals, and
+each player would swing at jellyfish the other could not see.
+
+Sharing a shoal needs an authority, and the UNO Q is the only thing both
+headsets already talk to. So the architecture inverted.
+
+| | SOLO | SHARED |
+|---|---|---|
+| Creature positions and behaviour | Lens | **UNO Q** (`shoal.py`) |
+| Who caught what | Lens | **UNO Q**, first claim wins |
+| Swing prediction, difficulty | UNO Q | UNO Q |
+| Rendering, HUD, haptics | Lens | Lens |
+
+### The rule that makes it a game
+
+A headset in shared play does not catch anything. It **claims**:
+
+```
+Lens  -> { "type": "claim", "id": 7 }
+board -> { "type": "taken", "id": 7, "by": 2, "kind": 3, "points": 8 }
+```
+
+The board grants the first claim and refuses every later one, so two players
+lunging at the same jellyfish cannot both score it. A creature that has already
+noticed you is refused as well, which is the same rule the single player game
+uses, now enforced somewhere neither player can argue with.
+
+### The protocol
+
+| Message | Direction | When |
+|---|---|---|
+| `hello` | Lens to board | on pressing SOLO or SHARED, declares the mode |
+| `mode` | board to Lens | acknowledges, and tells the Lens its player number |
+| `pose` | Lens to board | 10 Hz, head position so creatures know when to bolt |
+| `shoal` | board to Lens | 15 Hz, every creature's id, kind, position and state |
+| `claim` | Lens to board | a swing landed on creature N |
+| `taken` | board to all | somebody caught something, with who and what it was worth |
+| `claimed` | board to Lens | that claim was granted or refused |
+
+Keys in the `shoal` packet are single letters. It carries fourteen creatures
+fifteen times a second over a phone hotspot, and that is not the place for
+readable JSON.
+
+### Colocation, honestly
+
+Two Spectacles do not share a coordinate origin. Each headset pins the board's
+room frame to wherever it stood when the round began, so two players who start
+from roughly the same spot facing the same way will agree about where the
+creatures are.
+
+What is exact is the **state**: the same creatures, the same ids, one ruling on
+each catch. Proper shared spatial anchors need Connected Lenses, which this
+deliberately does not use, and the code says so rather than implying more than
+it delivers.
+
+### Three bugs worth recording
+
+**The standalone build silently broke.** `build-standalone.py` inlines the
+project's own modules so App Lab gets one file with no imports. It did not know
+about `shoal.py`, so the generated file carried a live `from shoal import Shoal`
+that would have failed on the board. Nothing complained locally, because
+`shoal.py` is right there during development. If you add a module, add it to the
+generator in the same commit.
+
+**Twice as many jellyfish.** The Lens spawns its own shoal at startup, and in
+shared play the board's shoal arrived on top of it: twenty-eight creatures, half
+of them invisible to the other player. The first shared packet now clears the
+local ones.
+
+**A frozen shoal on disconnect.** If the board went quiet mid-round the Lens
+kept rendering the last positions it was sent, leaving a motionless shoal
+hanging in the room. It now notices after two seconds and falls back to
+simulating its own. A dropped connection should cost you the shared game, not
+the game.
+
+### Tested on a laptop
+
+`shoal.py` has no hardware imports, so `test_shoal.py` runs anywhere. The tests
+worth having are the multiplayer rules rather than the arithmetic:
+
+- the second claim on a creature is refused, and scores nothing
+- a creature that has spotted you cannot be claimed
+- the shoal never leaves the room, with a player walking circles for twenty simulated seconds
+- a five second stall does not teleport the shoal, because `dt` is clamped
+
+```sh
+python3 test_shoal.py     # 30 checks
+```
+
 ## The AI layer (hackathon requirement)
 
 The hackathon requires the UNO Q's AI to be the project's main AI, and the

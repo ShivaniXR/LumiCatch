@@ -20,10 +20,16 @@ import hashlib
 from arduino.app_utils import *
 
 from neon_ai import AdaptiveDifficulty, TrajectoryPredictor
+from shoal import Shoal
 from dashboard import start_dashboard
 
 WS_PORT = 8765
-POLL_INTERVAL = 0.03          # seconds, ~30 Hz
+SHOAL_HZ = 15.0               # how often the shared shoal is broadcast
+# 50 Hz rather than 30. A swing waits here on average half a poll before it is
+# noticed, so this halves that from 15 ms to 10 ms. Small next to the MCU's
+# peak window, but it is free: the loop does nothing but two RPC calls unless
+# somebody is playing.
+POLL_INTERVAL = 0.02          # seconds, ~50 Hz
 MCU_SAMPLE_INTERVAL = 0.005   # the sketch samples at ~200 Hz
 IDLE_PING_INTERVAL = 30.0     # how often to probe a silent player, seconds
 
@@ -47,12 +53,24 @@ stats = {
 }
 
 
+# The shared shoal, simulated here rather than in either headset.
+#
+# This is what makes two players a game rather than two separate games: there
+# is one list of creatures, the board moves them, and the board decides who
+# caught what. A headset in SOLO mode ignores all of it and runs its own
+# creatures locally, exactly as before.
+shoal = Shoal()
+shoal_lock = threading.Lock()
+_last_shoal_send = 0.0
+
+
 class Session:
     """One connected player."""
 
     def __init__(self, sid, address):
         self.id = sid
         self.address = address
+        self.mode = "solo"
         self.dda = AdaptiveDifficulty()
         self.swings = 0
         self.hits = 0
@@ -69,6 +87,7 @@ class Session:
             "catch_ratio": (self.hits / self.swings) if self.swings else 0.0,
             "difficulty": self.dda.level(),
             "mood": self.mood,
+            "mode": self.mode,
             # The dashboard explains in words why difficulty moved, so it needs
             # the model's real thresholds rather than a second copy of them.
             "target_ratio": self.dda.target_ratio,
@@ -76,9 +95,15 @@ class Session:
         }
 
 
+MOOD_NAMES = {0: "calm", 1: "spooked", 2: "curious"}
+
+
 def dashboard_state():
     with sessions_lock:
         players = [s.as_dict() for s in sessions.values()]
+    with shoal_lock:
+        shoal_size = len(shoal.creatures)
+        shoal_mood = MOOD_NAMES.get(shoal.mood, "calm")
     return {
         "sessions": sorted(players, key=lambda p: p["id"]),
         "total_swings": stats["swings_detected"],
@@ -87,6 +112,11 @@ def dashboard_state():
         "last_eta_ms": stats["last_eta_ms"],
         "last_confidence": stats["last_confidence"],
         "uptime_s": time.time() - started_at,
+        # The shared shoal, so the dashboard can show that the board really is
+        # running the world rather than just keeping score for it.
+        "shared_players": sum(1 for p in players if p.get("mode") == "shared"),
+        "shoal_size": shoal_size,
+        "shoal_mood": shoal_mood,
     }
 
 # The trajectory model is shared: there is one net, so one motion stream.
@@ -264,7 +294,58 @@ def handle_client(conn, addr):
                 continue
 
             kind = data.get("type")
-            if kind == "haptic":
+            if kind == "hello":
+                # The headset declares which game it is playing. SHARED means
+                # it renders the board's shoal; SOLO means it runs its own and
+                # only wants difficulty and swing prediction.
+                session.mode = (
+                    "shared" if data.get("mode") == "shared" else "solo"
+                )
+                with shoal_lock:
+                    if session.mode == "shared":
+                        shoal.add_player(sid)
+                    else:
+                        shoal.remove_player(sid)
+                print("Player %d is playing %s" % (sid, session.mode))
+                _send_text(conn, json.dumps({
+                    "type": "mode", "mode": session.mode, "player": sid
+                }))
+
+            elif kind == "pose":
+                # Head position in the shared room frame. The creatures need it
+                # to know when to bolt, and it is the only per-frame message
+                # the headset sends, so it stays four numbers and no more.
+                with shoal_lock:
+                    shoal.set_pose(
+                        sid,
+                        (data.get("x", 0.0), data.get("y", 0.0),
+                         data.get("z", 0.0)),
+                        (data.get("fx", 0.0), data.get("fy", 0.0),
+                         data.get("fz", -1.0)),
+                    )
+
+            elif kind == "claim":
+                # 'I caught number 7.' The board decides. First claim wins, so
+                # two players lunging at the same creature cannot both score.
+                cid = int(data.get("id", -1))
+                with shoal_lock:
+                    ok, ckind, pts = shoal.claim(sid, cid)
+                if ok:
+                    session.score += pts
+                    session.swings += 1
+                    session.hits += 1
+                    session.dda.record_result(True)
+                    broadcast({"type": "taken", "id": cid,
+                               "by": sid, "kind": ckind, "points": pts})
+                    print("Player %d caught #%d (kind %d, %d points)"
+                          % (sid, cid, ckind, pts))
+                    _send_text(conn, json.dumps(session.dda.params()))
+                _send_text(conn, json.dumps({
+                    "type": "claimed", "id": cid, "ok": bool(ok),
+                    "points": pts if ok else 0
+                }))
+
+            elif kind == "haptic":
                 pattern = int(data.get("pattern", 3))
                 bridge_call("play_haptic", pattern)
                 print(f"Player {sid}: haptic {pattern}")
@@ -279,6 +360,12 @@ def handle_client(conn, addr):
                     session.score = int(data["score"])
                 session.dda.record_result(hit)
                 params = session.dda.params()
+                # The board's own creatures obey the same difficulty the Lens
+                # does, or a shared shoal would ignore the AI entirely.
+                with shoal_lock:
+                    shoal.set_difficulty(params)
+                    if not hit:
+                        shoal.record_miss(sid)
                 print("Player %d %s | ratio %.2f | difficulty %.2f"
                       % (sid, "HIT " if hit else "miss",
                          params["catchRatio"], params["level"]))
@@ -287,6 +374,8 @@ def handle_client(conn, addr):
         pass
     finally:
         clients.discard(conn)
+        with shoal_lock:
+            shoal.remove_player(sid)
         with sessions_lock:
             sessions.pop(conn, None)
         try:
@@ -374,8 +463,27 @@ def bridge_call(name, *args):
         return None
 
 
+def _shared_players():
+    with sessions_lock:
+        return [s for s in sessions.values() if s.mode == "shared"]
+
+
 def loop():
-    global sample_clock
+    global sample_clock, _last_shoal_send
+
+    # ---- 0. Step the shared shoal and tell everyone where it is ----
+    #
+    # Only when somebody is actually playing the shared game. A solo player
+    # costs nothing here, and with nobody connected the board does no work.
+    now = time.time()
+    if _shared_players():
+        dt = now - _last_shoal_send if _last_shoal_send else POLL_INTERVAL
+        if dt >= 1.0 / SHOAL_HZ:
+            _last_shoal_send = now
+            with shoal_lock:
+                shoal.update(dt)
+                snap = shoal.snapshot()
+            broadcast(snap)
 
     # ---- 1. Drain the IMU sample buffer and run the predictor ----
     raw = bridge_call("get_samples")

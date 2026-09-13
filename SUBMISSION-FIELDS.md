@@ -26,8 +26,8 @@ sentences.
 ```
 A real aquarium fish net, wired with an Arduino UNO Q, that catches AR jellyfish
 in your living room. The UNO Q reads the swing at 200 Hz, predicts its peak
-before it happens, and adapts the difficulty to the player, with two AI models
-running on the board itself.
+before it happens, adapts the difficulty to the player, and in shared play runs
+the whole shoal as the authoritative game server for everyone in the room.
 ```
 
 Shorter alternative if the field is tight:
@@ -39,10 +39,32 @@ predicts your swing before it peaks and tunes the difficulty to you.
 
 ---
 
-## Category
+## Prize category
 
-**Gaming** (the contest lists robotics, home automation, gaming, industrial IoT
-and social impact). Powered by AI: two models run on the UNO Q's Qualcomm side.
+Select **Gaming**.
+
+The five prize categories are Industrial IoT, Home Automation, Robotics, Gaming
+and Social Impact. Under Gaming the guide lists three *example* ideas: an
+AI-powered retro gaming console, a smart multiplayer arcade cabinet, and a
+mixed-reality gaming robot. Those are prompts, not sub-categories to pick from,
+and Neon-Net sits squarely in Gaming on its own terms: a mixed-reality game with
+both AI models running on the UNO Q, plus shared multiplayer where the board is
+the authoritative server.
+
+**On calling it a robot.** Neon-Net is genuinely mixed reality and genuinely a
+game, but it is not a robot: there is no actuation beyond a haptic motor and
+nothing moves under its own power. Describing it as a 'mixed-reality gaming
+robot' invites a judge to look for a robot, not find one, and discount the
+entry. The honest framing is stronger anyway, because what is distinctive here
+is not locomotion:
+
+- the controller is a **physical object read by an IMU**, not a gamepad
+- the board **predicts the swing before it peaks**, 35 to 84 ms of lead, which is what hides the wireless round trip
+- the board **adapts difficulty** to the player in real time
+- in shared play the board is **the game server**, ruling on who caught what
+
+Lead with those. 'Mixed reality' and 'powered by AI' are both accurate and both
+map onto what the rules actually ask for.
 
 ---
 
@@ -70,14 +92,27 @@ aquarium fish net.
 Arduino_RouterBridge 0.4.3, Lens Studio 5.15.4, Spectacles Interaction Kit
 0.16.4, Python 3 (standard library only).
 
+> **Both `Arduino UNO Q` and `Arduino App Lab` MUST appear in the Hackster
+> 'Things used in this project' fields.** The project guide says a submission
+> missing either one may be disqualified. Add them as structured entries, not
+> only as prose in the story: the hardware field and the software field are
+> what the judges filter on.
+
 **Tools:** soldering iron, multimeter, phone camera.
 
 ---
 
 ## Schematics
 
-Upload **`wiring-diagram.png`** (drawn circuit diagram, 1798 x 1165) and
-optionally `wiring-diagram.svg` as the source file.
+Upload both. They serve different readers and the rubric accepts either:
+
+| File | What it is |
+|---|---|
+| `wiring-diagram.png` | The **circuit diagram**: components, values, how the signals connect |
+| `breadboard-view.png` | The **breadboard view**: jumper colours and which hole every wire goes into, Fritzing-style |
+
+SVG sources (`wiring-diagram.svg`, `breadboard-view.svg`) can go up as resource
+files alongside them.
 
 `wiring-complete.html` is a longer illustrated wiring walkthrough if a second
 resource is wanted.
@@ -97,6 +132,7 @@ If Hackster wants individual code blocks attached, the ones worth attaching are:
 |---|---|
 | `sketch.ino` | MCU firmware: IMU, swing detection, haptics, watchdog |
 | `neon_ai.py` | Both AI models, heavily commented |
+| `shoal.py` | The authoritative shared shoal: creature behaviour and catch arbitration |
 | `main-nodeps-standalone.py` | The Linux side as actually deployed |
 | `Lumicatch/Assets/LumiCatchManager.ts` | The Lens |
 

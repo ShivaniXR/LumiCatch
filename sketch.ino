@@ -58,7 +58,18 @@ const float   LSB_PER_G     = 4096.0f;  // +/-8g range
 // 3.5 sits between the two, with roughly 0.5 g of margin each way. If walking
 // still triggers, raise it. If honest swings are missed, lower it. There is
 // not much room, so change it in steps of 0.2.
-const float SWING_THRESHOLD_G = 3.5f;   // raise if false triggers, lower if misses
+// 3.5 -> 3.0 -> 2.6, each step after a real play test. Swings register at 3.0
+// but not easily enough.
+//
+// 2.6 sits INSIDE the measured walking band, which is 2.0 to 3.0 g with the
+// electronics mounted. That is a deliberate trade, not an oversight: the game
+// is played standing roughly still and swinging, and a missed swing ruins a
+// take far more surely than a spurious one. DEBOUNCE_MS still limits it to one
+// trigger every 400 ms, so even a false positive cannot machine-gun.
+//
+// If simply carrying the net across the room starts scoring swings, this is
+// the number, and 2.8 is the next step back up.
+const float SWING_THRESHOLD_G = 2.6f;   // raise if false triggers, lower if misses
 
 // Phase 3 aid: give a soft blip on every detected swing, so swing detection
 // can be checked by feel when the console is not cooperating. It reuses the
@@ -67,7 +78,16 @@ const float SWING_THRESHOLD_G = 3.5f;   // raise if false triggers, lower if mis
 // While true every swing buzzes whether or not it caught anything, which
 // muddles the haptic language: the buzz is supposed to mean CAUGHT.
 const bool BUZZ_ON_SWING = false;
-const unsigned long PEAK_WINDOW_MS = 150;
+// PEAK_WINDOW_MS is the single largest source of felt lag in the whole game.
+// Nothing is reported until the window closes, so it is added in full to every
+// catch: threshold crossed, wait, report, send, render. It was 150 ms, which
+// on its own was most of the delay between swinging and seeing anything.
+//
+// 80 ms still comfortably contains the peak of a real swing, which arrives
+// within about 50 ms of the threshold crossing, while halving the wait. If
+// sneak and lunge start being confused for each other the window is clipping
+// the peak and this should go back up towards 120.
+const unsigned long PEAK_WINDOW_MS = 80;
 const unsigned long DEBOUNCE_MS    = 400;
 
 // ---------- Shared state (volatile: touched from RPC thread) ----------
