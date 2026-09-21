@@ -137,7 +137,7 @@ creatures know when to bolt.
 Full instructions, with the failure modes, are in
 [`LumiCatch-Build-Guide.md`](LumiCatch-Build-Guide.md). In outline:
 
-1. **Wire the IMU and the motor** — [`wiring-diagram.svg`](wiring-diagram.png). Do not omit the flyback diode.
+1. **Wire the IMU and the motor** — [`wiring-diagram.png`](wiring-diagram.png). Do not omit the flyback diode.
 2. **Check the hardware** — flash `diagnostics/phase1-imu-test.ino` and `diagnostics/phase2-motor-test.ino` before going near the game code.
 3. **Flash the firmware** — paste `sketch.ino` into your App Lab sketch.
 4. **Run the Linux side** — paste `main-nodeps-standalone.py` over the App's `main.py`. Make sure `app.yaml` publishes ports: `ports: [8765, 8080]`. An empty `ports: []` means a perfectly working server that nothing can reach.
