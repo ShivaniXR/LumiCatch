@@ -6,9 +6,7 @@ Spectacles, scatters away from you or gets caught in it. An Arduino UNO Q on the
 handle reads the swing, predicts where it is going before it gets there, and
 decides how hard the game should be.
 
-Built for the *Invent the Future with Arduino UNO Q and App Lab* hackathon, out
-of a long-standing wish to actually go jellyfishing rather than watch somebody
-do it in a cartoon. 
+
 
 ---
 
