@@ -4269,10 +4269,8 @@
     uiCountHeightCm: true
     uiTitleYCm: true
     uiButtonYCm: true
-    uiGameOverHeightCm: true
-    uiGameOverYCm: true
+    resultScoreYCm: true
     uiRestartHeightCm: true
-    uiRestartYCm: true
     uiArt32Aspect: true
     uiPressSquash: true
     uiPressFlare: true
@@ -4443,10 +4441,11 @@
       uiCountHeightCm: !<float> 30.000000
       uiTitleYCm: !<float> 15.000000
       uiButtonYCm: !<float> -4.000000
-      uiGameOverHeightCm: !<float> 17.000000
-      uiGameOverYCm: !<float> 19.000000
+      uiGameOverHeightCm: !<float> 16.000000
+      uiGameOverYCm: !<float> 4.000000
+      resultScoreYCm: !<float> 19.000000
       uiRestartHeightCm: !<float> 11.000000
-      uiRestartYCm: !<float> -9.000000
+      uiRestartYCm: !<float> -13.000000
       uiArt32Aspect: 1.500000
       uiPressSquash: 0.160000
       uiPressFlare: 0.900000

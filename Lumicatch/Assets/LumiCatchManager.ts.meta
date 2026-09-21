@@ -121,6 +121,7 @@
     rareTrack: false
     requireStart: false
     restartTex: false
+    resultScoreYCm: false
     returnSpeedCm: false
     roomCeilingCm: false
     roomFloorCm: false
@@ -362,6 +363,7 @@
       uiButtonYCm: !<float> -4.000000
       uiGameOverHeightCm: !<float> 17.000000
       uiGameOverYCm: !<float> 19.000000
+      resultScoreYCm: !<float> 19.000000
       uiRestartHeightCm: !<float> 11.000000
       uiRestartYCm: !<float> -9.000000
       uiArt32Aspect: 1.500000
@@ -541,10 +543,11 @@
     - // @input float uiCountHeightCm = 30
     - // @input float uiTitleYCm = 15
     - // @input float uiButtonYCm = -4
-    - // @input float uiGameOverHeightCm = 17
-    - // @input float uiGameOverYCm = 19
+    - // @input float uiGameOverHeightCm = 16
+    - // @input float uiGameOverYCm = 4
+    - // @input float resultScoreYCm = 19
     - // @input float uiRestartHeightCm = 11
-    - // @input float uiRestartYCm = -9
+    - // @input float uiRestartYCm = -13
     - // @input float uiArt32Aspect = 1.5
     - // @input float uiPressSquash = 0.16
     - // @input float uiPressFlare = 0.9
