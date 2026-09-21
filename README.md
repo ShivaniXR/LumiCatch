@@ -99,17 +99,11 @@ The start screen offers two games, and what runs where depends on which you pick
 | Swing prediction, difficulty | UNO Q | UNO Q |
 | Rendering, HUD, haptics | Lens | Lens |
 
-In shared play the headsets render what they are told and *ask* to catch
+In shared play the spectacles render what they are told and *ask* to catch
 something: a Lens sends `claim` and the board grants it or refuses it. The board
 broadcasts the shoal at 15 Hz and each Lens reports its head pose at 10 Hz so
 creatures know when to bolt.
 
-**On colocation, honestly.** Two Spectacles do not share a coordinate origin.
-Each headset pins the board's room frame to wherever it stood when the round
-began, so two players who start from roughly the same spot facing the same way
-will agree about where the creatures are. What is exact is the **state**: the
-same creatures, the same ids, one ruling on each catch. True shared spatial
-anchors need Connected Lenses, which this deliberately does not use.
 
 ---
 
