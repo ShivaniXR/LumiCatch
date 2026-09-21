@@ -8,7 +8,7 @@ decides how hard the game should be.
 
 Built for the *Invent the Future with Arduino UNO Q and App Lab* hackathon, out
 of a long-standing wish to actually go jellyfishing rather than watch somebody
-do it in a cartoon. See [`STORY.md`](STORY.md).
+do it in a cartoon. 
 
 ---
 
